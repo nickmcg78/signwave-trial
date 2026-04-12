@@ -190,12 +190,31 @@ function CompleteScreen({
   }
 
   function handleDownload() {
-    const a = document.createElement('a')
-    a.href = resultUrl
-    a.download = 'mockup.png'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    // iOS Safari ignores the `download` attribute on <a> tags — it just opens
+    // the image in the same tab. Instead we convert the data URL to a Blob,
+    // then open it in a new tab. On iOS the user can long-press → "Save to
+    // Photos" or tap the share button — which is the native flow they expect.
+    // On desktop/Android, the <a download> path still works, so we feature-detect.
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+
+    if (isIOS) {
+      // Convert data URL to blob
+      const [header, base64] = resultUrl.split(',')
+      const mime = header.match(/:(.*?);/)?.[1] ?? 'image/png'
+      const bytes = atob(base64)
+      const arr = new Uint8Array(bytes.length)
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+      const blob = new Blob([arr], { type: mime })
+      const blobUrl = URL.createObjectURL(blob)
+      window.open(blobUrl, '_blank')
+    } else {
+      const a = document.createElement('a')
+      a.href = resultUrl
+      a.download = 'mockup.png'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    }
   }
 
   return (
@@ -234,7 +253,7 @@ function CompleteScreen({
                 <button
                   type="button"
                   onClick={() => setRating('up')}
-                  className={`flex-1 h-12 rounded-xl border text-lg font-medium transition-colors ${
+                  className={`flex-1 min-h-[60px] rounded-xl border text-lg font-medium transition-colors ${
                     rating === 'up'
                       ? 'border-green-600 bg-green-50 text-green-700'
                       : 'border-gray-300 bg-white text-gray-500 active:bg-gray-100'
@@ -245,7 +264,7 @@ function CompleteScreen({
                 <button
                   type="button"
                   onClick={() => setRating('down')}
-                  className={`flex-1 h-12 rounded-xl border text-lg font-medium transition-colors ${
+                  className={`flex-1 min-h-[60px] rounded-xl border text-lg font-medium transition-colors ${
                     rating === 'down'
                       ? 'border-red-600 bg-red-50 text-red-700'
                       : 'border-gray-300 bg-white text-gray-500 active:bg-gray-100'
@@ -265,7 +284,7 @@ function CompleteScreen({
                     key={opt}
                     type="button"
                     onClick={() => setWouldUse(opt)}
-                    className={`flex-1 h-10 rounded-xl border text-sm font-medium transition-colors ${
+                    className={`flex-1 min-h-[60px] rounded-xl border text-sm font-medium transition-colors ${
                       wouldUse === opt
                         ? 'border-blue-600 bg-blue-50 text-blue-700'
                         : 'border-gray-300 bg-white text-gray-600 active:bg-gray-100'
@@ -285,14 +304,15 @@ function CompleteScreen({
                 onChange={(e) => setComment(e.target.value)}
                 rows={2}
                 placeholder="e.g. colours are off, text too small…"
-                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                style={{ fontSize: '16px' }}
+                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-base placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
               />
             </div>
 
             <button
               onClick={handleSubmitFeedback}
               disabled={!canSubmit}
-              className={`w-full h-12 rounded-xl text-sm font-semibold transition-colors ${
+              className={`w-full min-h-[60px] rounded-xl text-sm font-semibold transition-colors ${
                 canSubmit
                   ? 'bg-blue-600 text-white active:bg-blue-800'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -322,18 +342,18 @@ function CompleteScreen({
           {feedbackSent ? (
             <button
               onClick={handleDownload}
-              className="min-w-0 h-14 border border-gray-300 text-gray-700 font-semibold rounded-xl text-base active:bg-gray-100"
+              className="min-w-0 min-h-[60px] border border-gray-300 text-gray-700 font-semibold rounded-xl text-base active:bg-gray-100"
             >
               Download
             </button>
           ) : (
-            <div className="min-w-0 h-14 border border-gray-200 text-gray-300 font-semibold rounded-xl text-base flex items-center justify-center cursor-not-allowed">
+            <div className="min-w-0 min-h-[60px] border border-gray-200 text-gray-300 font-semibold rounded-xl text-base flex items-center justify-center cursor-not-allowed">
               Download
             </div>
           )}
           <button
             onClick={onNewMockup}
-            className="min-w-0 h-14 bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base"
+            className="min-w-0 min-h-[60px] bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base"
           >
             New Mockup
           </button>
@@ -377,7 +397,7 @@ function ErrorScreen({
         <div className="max-w-lg mx-auto w-full">
           <button
             onClick={onRetry}
-            className="w-full h-14 bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base"
+            className="w-full min-h-[60px] bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base"
           >
             Try Again
           </button>

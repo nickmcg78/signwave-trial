@@ -232,14 +232,14 @@ export default function NewMockup() {
           <button
             onClick={handleBack}
             disabled={currentStep === 1 || generating}
-            className="min-w-0 h-14 border border-gray-300 text-gray-700 font-semibold rounded-xl text-base active:bg-gray-100 disabled:opacity-40 disabled:pointer-events-none"
+            className="min-w-0 min-h-[60px] border border-gray-300 text-gray-700 font-semibold rounded-xl text-base active:bg-gray-100 disabled:opacity-40 disabled:pointer-events-none"
           >
             Back
           </button>
           <button
             onClick={handleNext}
             disabled={!canContinue() || generating}
-            className="col-span-2 min-w-0 h-14 bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base disabled:bg-blue-300"
+            className="col-span-2 min-w-0 min-h-[60px] bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base disabled:bg-blue-300"
           >
             {currentStep === 4
               ? generating
@@ -314,7 +314,7 @@ function StepPhoto({ state, setState }: StepProps) {
           <button
             type="button"
             onClick={openFilePicker}
-            className="mt-4 w-full min-h-14 border border-gray-300 text-gray-700 font-semibold rounded-xl text-base active:bg-gray-100"
+            className="mt-4 w-full min-h-[60px] border border-gray-300 text-gray-700 font-semibold rounded-xl text-base active:bg-gray-100"
           >
             Change photo
           </button>
@@ -323,7 +323,7 @@ function StepPhoto({ state, setState }: StepProps) {
         <button
           type="button"
           onClick={openFilePicker}
-          className="mt-6 w-full min-h-14 bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base"
+          className="mt-6 w-full min-h-[60px] bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base"
         >
           Choose photo
         </button>
@@ -385,7 +385,7 @@ function StepLogo({ state, setState }: StepProps) {
           <button
             type="button"
             onClick={openFilePicker}
-            className="mt-4 w-full min-h-14 border border-gray-300 text-gray-700 font-semibold rounded-xl text-base active:bg-gray-100"
+            className="mt-4 w-full min-h-[60px] border border-gray-300 text-gray-700 font-semibold rounded-xl text-base active:bg-gray-100"
           >
             Change logo
           </button>
@@ -394,7 +394,7 @@ function StepLogo({ state, setState }: StepProps) {
         <button
           type="button"
           onClick={openFilePicker}
-          className="mt-6 w-full min-h-14 bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base"
+          className="mt-6 w-full min-h-[60px] bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base"
         >
           Choose logo
         </button>

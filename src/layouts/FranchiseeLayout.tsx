@@ -32,11 +32,19 @@ export default function FranchiseeLayout() {
       </main>
 
       {/* Sticky bottom bar with "New Mockup" CTA */}
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 px-4 py-3">
+      <div
+        className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200"
+        style={{
+          paddingLeft: 'max(1.25rem, env(safe-area-inset-left))',
+          paddingRight: 'max(1.25rem, env(safe-area-inset-right))',
+          paddingTop: '0.75rem',
+          paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+        }}
+      >
         <div className="max-w-lg mx-auto">
           <button
             onClick={() => navigate('/new')}
-            className="w-full h-14 bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base"
+            className="w-full min-h-[60px] bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base"
           >
             + New Mockup
           </button>
