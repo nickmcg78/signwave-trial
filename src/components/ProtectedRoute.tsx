@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import type { UserRole } from '../lib/types'
-import LoginPage from '../pages/LoginPage'
 
 interface Props {
   children: ReactNode
@@ -10,6 +10,7 @@ interface Props {
 
 export default function ProtectedRoute({ children, requiredRole }: Props) {
   const { user, loading } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -19,15 +20,15 @@ export default function ProtectedRoute({ children, requiredRole }: Props) {
     )
   }
 
-  if (!user) return <LoginPage />
+  if (!user) {
+    // Send unauthenticated users to login, remembering where they were trying to go
+    return <Navigate to="/login" replace state={{ from: location }} />
+  }
 
   if (requiredRole && user.role !== requiredRole) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-5 text-center">
-        <p className="text-lg font-semibold text-gray-900">Access denied</p>
-        <p className="text-sm text-gray-500 mt-1">You don't have permission to view this page.</p>
-      </div>
-    )
+    // Wrong role — bounce them to their own home
+    const home = user.role === 'admin' ? '/admin' : '/'
+    return <Navigate to={home} replace />
   }
 
   return <>{children}</>

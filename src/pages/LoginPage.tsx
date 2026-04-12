@@ -1,13 +1,19 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export default function LoginPage() {
-  const { signIn } = useAuth()
+  const { signIn, user, loading: authLoading } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // If already signed in, bounce to the right home
+  if (!authLoading && user) {
+    return <Navigate to={user.role === 'admin' ? '/admin' : '/'} replace />
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -16,6 +22,7 @@ export default function LoginPage() {
     const { error } = await signIn(email, password)
     if (error) setError(error)
     setLoading(false)
+    // On success, the auth state updates and the Navigate above will redirect
   }
 
   return (

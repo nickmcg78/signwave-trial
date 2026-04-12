@@ -1,41 +1,57 @@
-import { AuthProvider, useAuth } from './context/AuthContext'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import FranchiseeLayout from './layouts/FranchiseeLayout'
+import AdminLayout from './layouts/AdminLayout'
+import LoginPage from './pages/LoginPage'
 import FranchiseeDashboard from './pages/FranchiseeDashboard'
 import AdminDashboard from './pages/AdminDashboard'
-import LoginPage from './pages/LoginPage'
-
-function AppRouter() {
-  const { user, loading } = useAuth()
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
-
-  if (!user) return <LoginPage />
-
-  if (user.role === 'admin') {
-    return (
-      <ProtectedRoute requiredRole="admin">
-        <AdminDashboard />
-      </ProtectedRoute>
-    )
-  }
-
-  return (
-    <ProtectedRoute requiredRole="franchisee">
-      <FranchiseeDashboard />
-    </ProtectedRoute>
-  )
-}
+import NewMockup from './pages/NewMockup'
 
 export default function App() {
   return (
     <AuthProvider>
-      <AppRouter />
+      <BrowserRouter>
+        <Routes>
+          {/* Public */}
+          <Route path="/login" element={<LoginPage />} />
+
+          {/* Franchisee area — wrapped in FranchiseeLayout shell */}
+          <Route
+            element={
+              <ProtectedRoute requiredRole="franchisee">
+                <FranchiseeLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/" element={<FranchiseeDashboard />} />
+          </Route>
+
+          {/* Franchisee wizard — protected, but no layout chrome (full-screen) */}
+          <Route
+            path="/new"
+            element={
+              <ProtectedRoute requiredRole="franchisee">
+                <NewMockup />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Admin area */}
+          <Route
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <AdminLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/admin" element={<AdminDashboard />} />
+          </Route>
+
+          {/* Anything else → home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
     </AuthProvider>
   )
 }
