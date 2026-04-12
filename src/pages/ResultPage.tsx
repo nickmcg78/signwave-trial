@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 
 // Shape of the columns we care about on the mockup_jobs row. Kept narrow to
 // the polling query — other columns (created_at, updated_at) aren't used here.
@@ -106,6 +107,7 @@ export default function ResultPage() {
   if (job.status === 'complete' && job.result_url) {
     return (
       <CompleteScreen
+        jobId={jobId!}
         resultUrl={job.result_url}
         onNewMockup={() => navigate('/new')}
       />
@@ -152,15 +154,42 @@ function LoadingScreen({ progressText }: { progressText: string }) {
 }
 
 function CompleteScreen({
+  jobId,
   resultUrl,
   onNewMockup,
 }: {
+  jobId: string
   resultUrl: string
   onNewMockup: () => void
 }) {
+  const { user } = useAuth()
+
+  // Feedback form state
+  const [rating, setRating] = useState<'up' | 'down' | null>(null)
+  const [wouldUse, setWouldUse] = useState<'Yes' | 'Maybe' | 'No' | null>(null)
+  const [comment, setComment] = useState('')
+  const [feedbackSent, setFeedbackSent] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+
+  const canSubmit = rating !== null && wouldUse !== null && !submitting
+
+  async function handleSubmitFeedback() {
+    if (!canSubmit) return
+    setSubmitting(true)
+
+    const { error } = await supabase.from('mockup_feedback').insert({
+      job_id: jobId,
+      user_id: user?.id ?? null,
+      rating,
+      would_use: wouldUse,
+      comment: comment.trim() || null,
+    })
+
+    setSubmitting(false)
+    if (!error) setFeedbackSent(true)
+  }
+
   function handleDownload() {
-    // The result_url is a base64 data URL, so we can just anchor-download it.
-    // data URLs work for <a download> in modern browsers including iOS Safari.
     const a = document.createElement('a')
     a.href = resultUrl
     a.download = 'mockup.png'
@@ -182,6 +211,7 @@ function CompleteScreen({
       </header>
 
       <main className="flex-1 px-4 py-6 max-w-lg w-full mx-auto pb-32">
+        {/* Mockup image */}
         <div className="rounded-2xl border border-gray-200 overflow-hidden bg-gray-50">
           <img
             src={resultUrl}
@@ -189,11 +219,96 @@ function CompleteScreen({
             className="w-full h-auto block"
           />
         </div>
-        <p className="text-xs text-gray-500 mt-3 text-center">
-          Tap the image and hold to save, or use the Download button below.
-        </p>
+
+        {/* Feedback form — shown until submitted */}
+        {!feedbackSent ? (
+          <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-5">
+            <p className="text-sm font-semibold text-gray-900">
+              Quick feedback before you download
+            </p>
+
+            {/* Thumbs up / down */}
+            <div>
+              <p className="text-sm text-gray-700 mb-2">How does it look?</p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setRating('up')}
+                  className={`flex-1 h-12 rounded-xl border text-lg font-medium transition-colors ${
+                    rating === 'up'
+                      ? 'border-green-600 bg-green-50 text-green-700'
+                      : 'border-gray-300 bg-white text-gray-500 active:bg-gray-100'
+                  }`}
+                >
+                  👍 Good
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRating('down')}
+                  className={`flex-1 h-12 rounded-xl border text-lg font-medium transition-colors ${
+                    rating === 'down'
+                      ? 'border-red-600 bg-red-50 text-red-700'
+                      : 'border-gray-300 bg-white text-gray-500 active:bg-gray-100'
+                  }`}
+                >
+                  👎 Poor
+                </button>
+              </div>
+            </div>
+
+            {/* Would you send to a client? */}
+            <div>
+              <p className="text-sm text-gray-700 mb-2">Would you send this to a client?</p>
+              <div className="flex gap-2">
+                {(['Yes', 'Maybe', 'No'] as const).map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => setWouldUse(opt)}
+                    className={`flex-1 h-10 rounded-xl border text-sm font-medium transition-colors ${
+                      wouldUse === opt
+                        ? 'border-blue-600 bg-blue-50 text-blue-700'
+                        : 'border-gray-300 bg-white text-gray-600 active:bg-gray-100'
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Optional comment */}
+            <div>
+              <p className="text-sm text-gray-700 mb-2">Any comments? (optional)</p>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                rows={2}
+                placeholder="e.g. colours are off, text too small…"
+                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              />
+            </div>
+
+            <button
+              onClick={handleSubmitFeedback}
+              disabled={!canSubmit}
+              className={`w-full h-12 rounded-xl text-sm font-semibold transition-colors ${
+                canSubmit
+                  ? 'bg-blue-600 text-white active:bg-blue-800'
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              {submitting ? 'Submitting…' : 'Submit & unlock download'}
+            </button>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-green-700 text-center font-medium">
+            Thanks for your feedback!
+          </p>
+        )}
       </main>
 
+      {/* Bottom bar — Download only appears after feedback */}
       <div
         className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200"
         style={{
@@ -204,12 +319,18 @@ function CompleteScreen({
         }}
       >
         <div className="max-w-lg mx-auto w-full grid grid-cols-2 gap-3">
-          <button
-            onClick={handleDownload}
-            className="min-w-0 h-14 border border-gray-300 text-gray-700 font-semibold rounded-xl text-base active:bg-gray-100"
-          >
-            Download
-          </button>
+          {feedbackSent ? (
+            <button
+              onClick={handleDownload}
+              className="min-w-0 h-14 border border-gray-300 text-gray-700 font-semibold rounded-xl text-base active:bg-gray-100"
+            >
+              Download
+            </button>
+          ) : (
+            <div className="min-w-0 h-14 border border-gray-200 text-gray-300 font-semibold rounded-xl text-base flex items-center justify-center cursor-not-allowed">
+              Download
+            </div>
+          )}
           <button
             onClick={onNewMockup}
             className="min-w-0 h-14 bg-blue-600 active:bg-blue-800 text-white font-semibold rounded-xl text-base"
