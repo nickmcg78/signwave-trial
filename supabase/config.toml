@@ -1,0 +1,2 @@
+[functions.generate-mockup]
+verify_jwt = false

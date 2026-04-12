@@ -260,15 +260,10 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Missing authorization header" }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401 });
     }
 
+    const supabaseAdmin = getSupabaseAdmin();
     const token = authHeader.replace("Bearer ", "");
-    try {
-      const parts = token.split(".");
-      if (parts.length !== 3) throw new Error("Invalid JWT format");
-      const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1])));
-      if (!payload.sub || payload.role !== "authenticated") throw new Error("Not authenticated");
-      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
-    } catch (jwtError) {
-      console.error("JWT validation failed:", jwtError);
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !user) {
       return new Response(JSON.stringify({ error: "Invalid authentication token" }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401 });
     }
 
@@ -328,7 +323,6 @@ serve(async (req) => {
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
-    const supabaseAdmin = getSupabaseAdmin();
     const { data: jobData, error: jobError } = await supabaseAdmin
       .from("mockup_jobs")
       .insert({ status: "pending", progress: `Processing 0/${signs.length} signs...` })
