@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage'
 import FranchiseeDashboard from './pages/FranchiseeDashboard'
 import AdminDashboard from './pages/AdminDashboard'
 import NewMockup from './pages/NewMockup'
+import ResultPage from './pages/ResultPage'
 
 export default function App() {
   return (
@@ -33,6 +34,16 @@ export default function App() {
             element={
               <ProtectedRoute requiredRole="franchisee">
                 <NewMockup />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Mockup result — polling screen after the wizard's Generate */}
+          <Route
+            path="/result/:jobId"
+            element={
+              <ProtectedRoute requiredRole="franchisee">
+                <ResultPage />
               </ProtectedRoute>
             }
           />

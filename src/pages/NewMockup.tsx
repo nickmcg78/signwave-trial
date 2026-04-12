@@ -1,6 +1,31 @@
 import { useRef, useState } from 'react'
 import type { ChangeEvent, Dispatch, SetStateAction } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
+
+// Maps the wizard's internal sign type IDs to the IDs the edge function expects.
+// The edge function has its own vocabulary inherited from the original prompt
+// template — we translate at the boundary rather than renaming either side.
+const SIGN_TYPE_MAP: Record<string, string> = {
+  fascia_panel: 'fascia-panel',
+  illuminated_fascia: 'lightbox',
+  blade_sign: 'blade-sign',
+  window_vinyl: 'window-perf',
+  dimensional_letters: '3d-letters',
+  monument_sign: 'fascia-panel',
+}
+
+// Read a File into a base64 data URL. We POST these to the edge function
+// rather than uploading to Storage first, because the edge function already
+// accepts data URLs and this keeps the trial prototype single-hop.
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
+}
 
 /**
  * NewMockup — 4-step wizard scaffold
@@ -46,6 +71,7 @@ export default function NewMockup() {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1)
   const [state, setState] = useState<WizardState>(INITIAL_STATE)
   const [generating, setGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState<string | null>(null)
 
   // Whether the current step has enough data for Next to be enabled.
   // For now (placeholders), Next is always enabled so you can click through.
@@ -73,13 +99,67 @@ export default function NewMockup() {
     }
   }
 
-  function handleGenerate() {
-    // TODO Session 3: replace with edge function call + job polling
-    console.log('Wizard state:', state)
+  async function handleGenerate() {
+    if (!state.photo || !state.logo || state.signs.length === 0) {
+      setGenerateError('Please complete all wizard steps before generating.')
+      return
+    }
+
+    setGenerateError(null)
     setGenerating(true)
-    setTimeout(() => {
-      navigate('/')
-    }, 1000)
+
+    try {
+      // Base64 the two files in parallel — these are small enough (phone photos
+      // + logos) that reading them sequentially would just add latency.
+      const [photoDataUrl, logoDataUrl] = await Promise.all([
+        fileToDataUrl(state.photo),
+        fileToDataUrl(state.logo),
+      ])
+
+      const wizardSign = state.signs[0]
+      const mappedSignType = SIGN_TYPE_MAP[wizardSign.signType] ?? 'fascia-panel'
+
+      const { data, error } = await supabase.functions.invoke('generate-mockup', {
+        body: {
+          shopImageUrl: photoDataUrl,
+          logoUrl: logoDataUrl,
+          tagline: '',
+          size: 'medium',
+          finish: 'standard',
+          illumination: 'standard',
+          timeOfDay: 'day',
+          signs: [
+            {
+              signType: mappedSignType,
+              signPosition: wizardSign.spec,
+              replaceExisting: true,
+              existingSignDescription: '',
+            },
+          ],
+        },
+      })
+
+      if (error) {
+        // supabase-js wraps non-2xx responses in a FunctionsHttpError. The
+        // JSON error body is usually reachable via error.context.
+        throw error
+      }
+
+      const jobId = (data as { jobId?: string } | null)?.jobId
+      if (!jobId) {
+        throw new Error('Edge function did not return a jobId.')
+      }
+
+      navigate(`/result/${jobId}`)
+    } catch (err: unknown) {
+      console.error('[NewMockup] Generate failed:', err)
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Something went wrong generating your mockup. Please try again.'
+      setGenerateError(message)
+      setGenerating(false)
+    }
   }
 
   function handleBack() {
@@ -138,6 +218,16 @@ export default function NewMockup() {
           paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
         }}
       >
+        {generateError && (
+          <div className="max-w-lg mx-auto w-full mb-3">
+            <div
+              role="alert"
+              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+            >
+              {generateError}
+            </div>
+          </div>
+        )}
         <div className="max-w-lg mx-auto w-full grid grid-cols-3 gap-3">
           <button
             onClick={handleBack}
@@ -153,7 +243,7 @@ export default function NewMockup() {
           >
             {currentStep === 4
               ? generating
-                ? 'Preparing…'
+                ? 'Generating…'
                 : 'Generate Mockup'
               : 'Next'}
           </button>
