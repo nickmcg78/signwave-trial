@@ -156,7 +156,7 @@ function validateImageUrl(url: unknown, fieldName: string, required: boolean = f
   return { valid: true, value: trimmed };
 }
 
-const ASPECT_RATIO_TOLERANCE = 0.20;
+const ASPECT_RATIO_TOLERANCE = 0.30;
 const MAX_GENERATION_ATTEMPTS = 4;
 
 function parseVisionBoolean(value: unknown): boolean {
