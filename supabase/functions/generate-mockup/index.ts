@@ -394,7 +394,7 @@ serve(async (req) => {
         }
 
         const styleDescriptions: Record<string, string> = {
-          "window-perf": "One-Way Vision vinyl (perforated window film) applied flat ON the glass surface. Zero depth.",
+          "window-perf": "One-Way Vision vinyl (perforated window film) applied directly onto the glass surface. The graphic is SEMI-TRANSPARENT — the shop interior must remain partially visible through the vinyl. This is NOT a solid panel or physical sign. Zero depth, zero standoff. The glass surface and window frame remain unchanged.",
           "blade-sign": "This sign PROJECTS OUTWARD from the building wall at 90 degrees, perpendicular to the facade, hanging from a metal bracket arm.",
           "3d-letters": "Individual dimensional CHANNEL LETTERS mounted to the wall with stand-off pins. Each letter casts its own shadow.",
           lightbox: "Illuminated LIGHTBOX CABINET sign — enclosed, backlit panel with 3-inch aluminium frame depth.",
@@ -444,7 +444,7 @@ Every sign must look like it was fabricated by a professional sign company and p
           let signSection = "";
 
           if (s.replaceExisting) {
-            const sizingConstraint = `• SIZING CONSTRAINT (CRITICAL):\n  – The new sign MUST fit WITHIN the existing physical fascia/structure dimensions.\n  – Do NOT enlarge, extend, or reshape any architectural element to accommodate the sign.\n  – The fascia height, width, and position must remain IDENTICAL to the original photograph.\n  – If the logo does not fit at full size, SCALE IT DOWN until it fits within the existing fascia boundary.\n  – The building is IMMUTABLE — only the sign artwork changes, never the structure.\n`;
+            const sizingConstraint = `• SIZING CONSTRAINT (CRITICAL):\n  – The new sign MUST fit WITHIN the existing physical fascia band/structure dimensions.\n  – Do NOT enlarge, extend, or reshape any architectural element to accommodate the sign.\n  – The fascia height, width, and position must remain IDENTICAL to the original photograph.\n  – If the logo does not fit at full size, SCALE IT DOWN until it fits within the existing fascia boundary.\n  – Do NOT cover, obscure, or overlap any windows, doors, awnings, or other architectural features.\n  – The sign must sit entirely within the fascia band — never extend above, below, or beyond it.\n  – The building is IMMUTABLE — only the sign artwork changes, never the structure.\n`;
             signSection += s.existingSignDescription
               ? `SIGN REPLACEMENT DIRECTIVE:\n• LOCATE: Find the existing sign described as: "${s.existingSignDescription}".\n• ERASE: Paint over with the wall/surface texture behind it.\n• INSTALL: Place the NEW sign centered on the same position.\n${sizingConstraint}`
               : `SIGN REPLACEMENT DIRECTIVE:\n• LOCATE: Identify the most prominent existing signage.\n• ERASE: Paint over completely.\n• INSTALL: Place the NEW sign centered on the same position.\n${sizingConstraint}`;
@@ -473,6 +473,12 @@ TEXT FIDELITY (CRITICAL): Logo text must be perfectly sharp, correctly oriented,
 THE ZERO-ZOOM LOCK (MANDATORY):
 • Output MUST show the ENTIRE original photograph — every pixel from edge to edge.
 • Do NOT zoom in, crop, pan, or reframe under ANY circumstances.
+
+SINGLE-PLACEMENT LOCK (CRITICAL):
+• Place the sign in EXACTLY ONE location on the building — the primary ground-floor fascia.
+• Do NOT duplicate, repeat, or echo the sign on any other surface.
+• Do NOT place any signage on upper floors, secondary walls, side walls, awnings, or rooflines.
+• ONE sign, ONE location, ONE fascia — no exceptions.
 
 ${signSection}`;
 

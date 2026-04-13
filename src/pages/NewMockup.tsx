@@ -72,6 +72,7 @@ export default function NewMockup() {
   const [state, setState] = useState<WizardState>(INITIAL_STATE)
   const [generating, setGenerating] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
+  const [currentSignIndex, setCurrentSignIndex] = useState(0)
 
   // Whether the current step has enough data for Next to be enabled.
   // For now (placeholders), Next is always enabled so you can click through.
@@ -83,9 +84,9 @@ export default function NewMockup() {
       case 2:
         return state.logo !== null
       case 3:
-        return state.signs.length > 0
+        return !!state.signs[currentSignIndex]?.signType
       case 4:
-        return (state.signs[0]?.spec.length ?? 0) >= 10
+        return (state.signs[currentSignIndex]?.spec.length ?? 0) >= 10
       default:
         return false
     }
@@ -116,8 +117,12 @@ export default function NewMockup() {
         fileToDataUrl(state.logo),
       ])
 
-      const wizardSign = state.signs[0]
-      const mappedSignType = SIGN_TYPE_MAP[wizardSign.signType] ?? 'fascia-panel'
+      const mappedSigns = state.signs.map(s => ({
+        signType: SIGN_TYPE_MAP[s.signType] ?? 'fascia-panel',
+        signPosition: s.spec,
+        replaceExisting: true,
+        existingSignDescription: '',
+      }))
 
       const { data, error } = await supabase.functions.invoke('generate-mockup', {
         body: {
@@ -128,14 +133,7 @@ export default function NewMockup() {
           finish: 'standard',
           illumination: 'standard',
           timeOfDay: 'day',
-          signs: [
-            {
-              signType: mappedSignType,
-              signPosition: wizardSign.spec,
-              replaceExisting: true,
-              existingSignDescription: '',
-            },
-          ],
+          signs: mappedSigns,
         },
       })
 
@@ -163,16 +161,34 @@ export default function NewMockup() {
   }
 
   function handleBack() {
-    if (currentStep > 1) {
+    if (currentStep === 3 && currentSignIndex > 0) {
+      // Abandoning current sign — remove it and return to previous sign's spec
+      setState(prev => ({
+        ...prev,
+        signs: prev.signs.slice(0, currentSignIndex),
+      }))
+      setCurrentSignIndex(currentSignIndex - 1)
+      setCurrentStep(4)
+    } else if (currentStep > 1) {
       setCurrentStep((currentStep - 1) as 1 | 2 | 3 | 4)
     }
+  }
+
+  function handleAddSign() {
+    if (currentSignIndex >= 2) return // Max 3 signs (indices 0, 1, 2)
+    setCurrentSignIndex(prev => prev + 1)
+    setCurrentStep(3)
   }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header with Cancel */}
       <header className="bg-white border-b border-gray-200 px-4 py-4 flex items-center justify-between sticky top-0 z-10">
-        <h1 className="text-base font-semibold text-gray-900">New Mockup</h1>
+        <div className="flex items-center gap-2">
+          <img src="/signwave-logo.png" alt="Signwave" className="h-6 w-auto" />
+          <span className="text-sm text-gray-400">|</span>
+          <span className="text-sm font-semibold text-gray-900">New Mockup</span>
+        </div>
         <Link
           to="/"
           className="text-sm text-gray-500 active:text-gray-800 px-3 py-2 rounded-lg"
@@ -196,16 +212,17 @@ export default function NewMockup() {
           </div>
           <p className="text-xs text-gray-500 mt-2">
             Step {currentStep} of 4 — {STEPS[currentStep - 1].label}
+            {currentStep >= 3 && currentSignIndex > 0 && ` (Sign ${currentSignIndex + 1})`}
           </p>
         </div>
       </div>
 
       {/* Step body */}
       <main className="flex-1 px-4 py-6 max-w-lg w-full mx-auto pb-32">
-        {currentStep === 1 && <StepPhoto state={state} setState={setState} />}
-        {currentStep === 2 && <StepLogo state={state} setState={setState} />}
-        {currentStep === 3 && <StepType state={state} setState={setState} />}
-        {currentStep === 4 && <StepSpec state={state} setState={setState} />}
+        {currentStep === 1 && <StepPhoto state={state} setState={setState} signIndex={currentSignIndex} />}
+        {currentStep === 2 && <StepLogo state={state} setState={setState} signIndex={currentSignIndex} />}
+        {currentStep === 3 && <StepType state={state} setState={setState} signIndex={currentSignIndex} />}
+        {currentStep === 4 && <StepSpec state={state} setState={setState} signIndex={currentSignIndex} onAddSign={handleAddSign} />}
       </main>
 
       {/* Sticky footer: Back / Next */}
@@ -258,6 +275,8 @@ export default function NewMockup() {
 type StepProps = {
   state: WizardState
   setState: Dispatch<SetStateAction<WizardState>>
+  signIndex: number
+  onAddSign?: () => void
 }
 
 function StepPhoto({ state, setState }: StepProps) {
@@ -438,26 +457,28 @@ const SIGN_TYPES: { id: string; name: string; description: string }[] = [
   },
 ]
 
-function StepType({ state, setState }: StepProps) {
+function StepType({ state, setState, signIndex }: StepProps) {
   function selectType(id: string) {
-    // Preserve any spec the user has already typed on step 4 if they come
-    // back to change the sign type.
-    setState(prev => ({
-      ...prev,
-      signs:
-        prev.signs.length > 0
-          ? [{ ...prev.signs[0], signType: id }]
-          : [{ signType: id, spec: '' }],
-    }))
+    setState(prev => {
+      const newSigns = [...prev.signs]
+      if (newSigns[signIndex]) {
+        newSigns[signIndex] = { ...newSigns[signIndex], signType: id }
+      } else {
+        newSigns[signIndex] = { signType: id, spec: '' }
+      }
+      return { ...prev, signs: newSigns }
+    })
   }
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900">What type of sign?</h2>
+      <h2 className="text-2xl font-bold text-gray-900">
+        {signIndex > 0 ? `Sign ${signIndex + 1}: What type?` : 'What type of sign?'}
+      </h2>
 
       <div className="mt-6 grid grid-cols-2 gap-3">
         {SIGN_TYPES.map(type => {
-          const isSelected = state.signs[0]?.signType === type.id
+          const isSelected = state.signs[signIndex]?.signType === type.id
           return (
             <button
               key={type.id}
@@ -484,40 +505,62 @@ function StepType({ state, setState }: StepProps) {
   )
 }
 
-function StepSpec({ state, setState }: StepProps) {
-  const spec = state.signs[0]?.spec ?? ''
-  const signTypeId = state.signs[0]?.signType ?? ''
+function StepSpec({ state, setState, signIndex, onAddSign }: StepProps) {
+  const spec = state.signs[signIndex]?.spec ?? ''
   const showReview = spec.length >= 10
+  const canAddMore = signIndex < 2 && showReview
 
   function handleSpecChange(e: ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value
-    setState(prev => ({
-      ...prev,
-      signs:
-        prev.signs.length > 0
-          ? [{ ...prev.signs[0], spec: value }]
-          : [{ signType: '', spec: value }],
-    }))
+    setState(prev => {
+      const newSigns = [...prev.signs]
+      if (newSigns[signIndex]) {
+        newSigns[signIndex] = { ...newSigns[signIndex], spec: value }
+      } else {
+        newSigns[signIndex] = { signType: '', spec: value }
+      }
+      return { ...prev, signs: newSigns }
+    })
   }
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900">Describe the sign</h2>
+      <h2 className="text-2xl font-bold text-gray-900">
+        {signIndex > 0 ? `Sign ${signIndex + 1}: Describe the sign` : 'Describe the sign'}
+      </h2>
       <p className="text-gray-500 text-sm mt-1">
         Include size, finish, colours, or anything specific.
       </p>
 
+      {/* Summary of previously configured signs */}
+      {signIndex > 0 && (
+        <div className="mt-4 space-y-2">
+          {state.signs.slice(0, signIndex).map((s, i) => (
+            <div
+              key={i}
+              className="bg-green-50 border border-green-200 rounded-xl px-4 py-3"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-green-600 text-sm font-bold">&#10003;</span>
+                <span className="text-sm font-semibold text-gray-900">
+                  Sign {i + 1}: {signTypeName(s.signType)}
+                </span>
+              </div>
+              <p className="text-sm text-gray-600 mt-1 line-clamp-1">{s.spec}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* 16px font size is required — iOS Safari auto-zooms in on any
-          input/textarea with a computed font-size smaller than 16px.
-          text-base = 1rem = 16px, but we set it inline too as a belt-and-braces
-          defence against the base font size ever being changed globally. */}
+          input/textarea with a computed font-size smaller than 16px. */}
       <textarea
         value={spec}
         onChange={handleSpecChange}
         rows={4}
         placeholder="e.g. 6m wide aluminium fascia panel, white background, navy text, satin finish"
         style={{ fontSize: '16px' }}
-        className="mt-6 w-full text-base rounded-xl border border-gray-300 p-4 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
+        className="mt-4 w-full text-base rounded-xl border border-gray-300 p-4 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
       />
 
       {showReview && (
@@ -543,13 +586,30 @@ function StepSpec({ state, setState }: StepProps) {
               </div>
             )}
             <div className="min-w-0 flex-1">
-              <span className="inline-block text-xs font-medium bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                {signTypeName(signTypeId)}
-              </span>
-              <p className="text-sm text-gray-700 mt-2 line-clamp-2">{spec}</p>
+              {state.signs.slice(0, signIndex + 1).map((s, i) => (
+                <div key={i} className={i > 0 ? 'mt-2 pt-2 border-t border-gray-100' : ''}>
+                  <span className="inline-block text-xs font-medium bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                    {state.signs.length > 1 || signIndex > 0
+                      ? `Sign ${i + 1}: ${signTypeName(s.signType)}`
+                      : signTypeName(s.signType)}
+                  </span>
+                  <p className="text-sm text-gray-700 mt-1 line-clamp-2">{s.spec}</p>
+                </div>
+              ))}
             </div>
           </div>
         </div>
+      )}
+
+      {/* Optional add-sign button — secondary action, Generate stays primary in footer */}
+      {canAddMore && onAddSign && (
+        <button
+          type="button"
+          onClick={onAddSign}
+          className="mt-4 w-full min-h-[48px] border border-dashed border-gray-300 text-gray-600 font-medium rounded-xl text-sm active:bg-gray-50 cursor-pointer"
+        >
+          + Add Sign {signIndex + 2} (optional)
+        </button>
       )}
     </div>
   )

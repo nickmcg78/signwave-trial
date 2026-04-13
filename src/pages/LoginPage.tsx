@@ -30,8 +30,8 @@ export default function LoginPage() {
       <div className="w-full max-w-sm mx-auto">
         {/* Logo / Brand */}
         <div className="text-center mb-10">
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Signwave</h1>
-          <p className="text-gray-500 mt-1 text-sm">Sign mockup tool</p>
+          <img src="/signwave-logo.png" alt="Signwave" className="h-10 w-auto mx-auto" />
+          <p className="text-gray-500 mt-3 text-sm">Sign mockup tool</p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-5">

@@ -126,7 +126,31 @@ export default function ResultPage() {
 
 // --- Sub-screens ----------------------------------------------------
 
+// Reassuring status messages that rotate every 20s so the user knows the app
+// is still working during the 1–3 minute generation window.
+const LOADING_MESSAGES = [
+  'Analysing building…',
+  'Mapping sign placement…',
+  'Matching colours and lighting…',
+  'Placing signage…',
+  'Rendering materials and shadows…',
+  'Checking proportions…',
+  'Finalising your mockup…',
+  'Almost there — adding finishing touches…',
+]
+
+const ROTATE_INTERVAL_MS = 20_000
+
 function LoadingScreen({ progressText }: { progressText: string }) {
+  const [msgIndex, setMsgIndex] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setMsgIndex(prev => (prev + 1) % LOADING_MESSAGES.length)
+    }, ROTATE_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [])
+
   return (
     <div className="min-h-screen bg-white flex flex-col">
       <header className="px-4 py-4 border-b border-gray-200 sticky top-0 bg-white z-10">
@@ -145,8 +169,11 @@ function LoadingScreen({ progressText }: { progressText: string }) {
           Generating your mockup
         </p>
         <p className="mt-2 text-sm text-gray-500 max-w-xs">{progressText}</p>
+        <p className="mt-4 text-sm text-blue-600 font-medium max-w-xs transition-opacity">
+          {LOADING_MESSAGES[msgIndex]}
+        </p>
         <p className="mt-6 text-xs text-gray-400 max-w-xs">
-          This usually takes 30–90 seconds. Keep this tab open.
+          This can take up to 2 minutes. Keep this tab open.
         </p>
       </main>
     </div>

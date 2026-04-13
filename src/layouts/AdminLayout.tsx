@@ -15,7 +15,7 @@ export default function AdminLayout() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-4 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-bold text-gray-900">Signwave</h1>
+          <img src="/signwave-logo.png" alt="Signwave" className="h-7 w-auto" />
           <span className="text-xs font-medium bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
             Admin
           </span>

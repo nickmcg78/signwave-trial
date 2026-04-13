@@ -4,6 +4,17 @@
   box-sizing: border-box;
 }
 
+button,
+a,
+[role="button"],
+input[type="submit"],
+input[type="button"],
+input[type="reset"],
+select,
+label[for] {
+  cursor: pointer;
+}
+
 html,
 body {
   overflow-x: hidden;
