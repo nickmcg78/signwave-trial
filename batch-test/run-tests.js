@@ -4,11 +4,13 @@
  * Reads test_cases.json, sends each case to the generate-mockup edge function,
  * polls for completion, downloads result images, and writes a summary CSV.
  *
- * Usage:  node batch-test/run-tests.js
+ * Usage:  node batch-test/run-tests.js            (all tests)
+ *         node batch-test/run-tests.js --single   (TC01 only)
+ *         node batch-test/run-tests.js --id TC06  (specific test by ID)
  * Prereqs: npm install, .env.local populated with test credentials
  */
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
@@ -18,6 +20,15 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, '..');
+
+// Load .env.local from project root
+const ENV_PATH = path.join(PROJECT_ROOT, '.env.local');
+const envResult = dotenv.config({ path: ENV_PATH });
+if (envResult.error) {
+  console.error('Failed to load .env.local:', envResult.error.message);
+  console.error('Looked at:', ENV_PATH);
+  process.exit(1);
+}
 
 const TEST_CASES_PATH = path.join(__dirname, 'test_cases.json');
 const TEST_IMAGES_DIR = path.join(PROJECT_ROOT, 'test_images');
@@ -98,8 +109,25 @@ async function main() {
   preflight();
 
   // --- Load test cases ---
-  const testCases = JSON.parse(fs.readFileSync(TEST_CASES_PATH, 'utf-8'));
-  console.log(`\nLoaded ${testCases.length} test cases\n`);
+  const singleMode = process.argv.includes('--single');
+  const idFlagIndex = process.argv.indexOf('--id');
+  const idFilter = idFlagIndex !== -1 ? process.argv[idFlagIndex + 1] : null;
+
+  let testCases = JSON.parse(fs.readFileSync(TEST_CASES_PATH, 'utf-8'));
+  if (idFilter) {
+    const match = testCases.find(tc => tc.id.toUpperCase() === idFilter.toUpperCase());
+    if (!match) {
+      console.error(`No test case found with ID "${idFilter}". Available: ${testCases.map(tc => tc.id).join(', ')}`);
+      process.exit(1);
+    }
+    testCases = [match];
+    console.log(`\nSingle-test mode: running ${match.id} only\n`);
+  } else if (singleMode) {
+    testCases = [testCases[0]];
+    console.log(`\nSingle-test mode: running TC01 only\n`);
+  } else {
+    console.log(`\nLoaded ${testCases.length} test cases\n`);
+  }
 
   // --- Load logo once (reused for every test) ---
   const logoBase64 = toBase64DataUri(LOGO_PATH);
@@ -142,15 +170,18 @@ async function main() {
       }
       const shopBase64 = toBase64DataUri(buildingPath);
 
+      console.log(`${tag} shopImage base64 preview: ${shopBase64.substring(0, 50)}...`);
+
       // POST to edge function
       const payload = {
-        shopImage: shopBase64,
-        logoImage: logoBase64,
+        shopImageUrl: shopBase64,
+        logoUrl: logoBase64,
         signs: [
           {
-            type: signType,
-            spec: tc.spec,
-            logoImage: logoBase64,
+            signType: signType,
+            signPosition: tc.spec,
+            replaceExisting: true,
+            existingSignDescription: '',
           },
         ],
       };
@@ -196,7 +227,7 @@ async function main() {
           job = data;
           break;
         }
-        if (data.status === 'error') {
+        if (data.status === 'failed' || data.status === 'error') {
           throw new Error(data.error || 'Job failed with no error message');
         }
       }
@@ -205,14 +236,23 @@ async function main() {
         throw new Error('Timed out after 5 minutes');
       }
 
-      // Download result image
-      const imgRes = await fetch(job.result_url);
-      if (!imgRes.ok) {
-        throw new Error(`Failed to download result: ${imgRes.status}`);
+      // Download / decode result image
+      let imgBuffer;
+      if (job.result_url.startsWith('data:')) {
+        // Decode base64 data URI directly (avoids fetch() issues with large data URIs)
+        const b64 = job.result_url.split(',')[1];
+        if (!b64) throw new Error('Empty data URI in result_url');
+        imgBuffer = Buffer.from(b64, 'base64');
+      } else {
+        const imgRes = await fetch(job.result_url);
+        if (!imgRes.ok) {
+          throw new Error(`Failed to download result: ${imgRes.status}`);
+        }
+        imgBuffer = Buffer.from(await imgRes.arrayBuffer());
       }
-      const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
       const outPath = path.join(OUTPUT_DIR, outputFilename);
       fs.writeFileSync(outPath, imgBuffer);
+      console.log(`${tag} Wrote ${(imgBuffer.length / 1024).toFixed(0)} KB to ${outPath}`);
 
       const elapsed = Date.now() - start;
       status = 'complete';

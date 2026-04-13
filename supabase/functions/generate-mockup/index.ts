@@ -245,6 +245,190 @@ async function fetchImageAsBase64(url: string): Promise<{ base64: string; mime: 
   } catch (e) { clearTimeout(timeoutId); throw e; }
 }
 
+// --- PNG mask generation utilities ---
+// Deno edge functions don't have a canvas library, so we build the PNG binary
+// from scratch. A mask is a simple image: opaque black (protected) with a
+// transparent rectangle (the fascia zone OpenAI is allowed to edit).
+
+const PNG_CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function pngCrc32(data: Uint8Array): number {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) crc = (crc >>> 8) ^ PNG_CRC_TABLE[(crc ^ data[i]) & 0xFF];
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function pngChunk(type: string, data: Uint8Array): Uint8Array {
+  const typeBytes = new TextEncoder().encode(type);
+  const buf = new Uint8Array(4 + 4 + data.length + 4);
+  const view = new DataView(buf.buffer);
+  view.setUint32(0, data.length);
+  buf.set(typeBytes, 4);
+  buf.set(data, 8);
+  const crcInput = new Uint8Array(4 + data.length);
+  crcInput.set(typeBytes, 0);
+  crcInput.set(data, 4);
+  view.setUint32(8 + data.length, pngCrc32(crcInput));
+  return buf;
+}
+
+async function compressZlib(data: Uint8Array): Promise<Uint8Array> {
+  const cs = new CompressionStream('deflate');
+  const writer = cs.writable.getWriter();
+  const reader = cs.readable.getReader();
+  const chunks: Uint8Array[] = [];
+  const readAll = (async () => {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+  })();
+  await writer.write(data);
+  await writer.close();
+  await readAll;
+  let len = 0;
+  for (const c of chunks) len += c.length;
+  const result = new Uint8Array(len);
+  let off = 0;
+  for (const c of chunks) { result.set(c, off); off += c.length; }
+  return result;
+}
+
+async function generateMaskPNG(
+  width: number, height: number,
+  topPx: number, bottomPx: number, leftPx: number, rightPx: number,
+): Promise<Uint8Array> {
+  const rowLen = 1 + width * 4; // filter byte + RGBA
+
+  // Pre-build two row templates instead of per-pixel branching
+  const opaqueRow = new Uint8Array(rowLen); // all opaque black
+  opaqueRow[0] = 0; // PNG filter: None
+  for (let x = 0; x < width; x++) opaqueRow[1 + x * 4 + 3] = 255;
+
+  const zoneRow = new Uint8Array(rowLen); // transparent in the fascia zone
+  zoneRow[0] = 0;
+  for (let x = 0; x < width; x++) {
+    zoneRow[1 + x * 4 + 3] = (x >= leftPx && x < rightPx) ? 0 : 255;
+  }
+
+  // Assemble raw scanlines
+  const raw = new Uint8Array(height * rowLen);
+  for (let y = 0; y < height; y++) {
+    raw.set((y >= topPx && y < bottomPx) ? zoneRow : opaqueRow, y * rowLen);
+  }
+
+  // Compress with zlib (CompressionStream 'deflate' produces RFC 1950 zlib format)
+  const compressed = await compressZlib(raw);
+
+  // Build PNG file: signature + IHDR + IDAT + IEND
+  const sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
+  const ihdrData = new Uint8Array(13);
+  const ihdrView = new DataView(ihdrData.buffer);
+  ihdrView.setUint32(0, width);
+  ihdrView.setUint32(4, height);
+  ihdrData[8] = 8;  // bit depth
+  ihdrData[9] = 6;  // color type: RGBA
+  const ihdr = pngChunk('IHDR', ihdrData);
+  const idat = pngChunk('IDAT', compressed);
+  const iend = pngChunk('IEND', new Uint8Array(0));
+
+  const png = new Uint8Array(sig.length + ihdr.length + idat.length + iend.length);
+  let off = 0;
+  png.set(sig, off); off += sig.length;
+  png.set(ihdr, off); off += ihdr.length;
+  png.set(idat, off); off += idat.length;
+  png.set(iend, off);
+  return png;
+}
+
+// --- Fascia zone detection via Gemini ---
+
+interface FasciaZone {
+  topPercent: number;
+  bottomPercent: number;
+  leftPercent: number;
+  rightPercent: number;
+  confidence: string;
+  notes: string;
+}
+
+async function detectFasciaZone(
+  imageBase64: string, imageMime: string, geminiApiKey: string,
+): Promise<FasciaZone | null> {
+  try {
+    // Call Google Gemini API directly (not via Lovable gateway)
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              {
+                text: `Look at this building photo. Identify the fascia band — the horizontal zone between the top of the windows/door openings and the roofline or parapet edge.
+
+Return ONLY a JSON object with these fields, no other text:
+{
+  "top_percent": <number 0-100, where 0 is top of image>,
+  "bottom_percent": <number 0-100>,
+  "left_percent": <number 0-100, where 0 is left edge>,
+  "right_percent": <number 0-100>,
+  "confidence": "high" | "medium" | "low",
+  "notes": "<brief description of what you found>"
+}
+
+If there is no clear fascia band, return top_percent: 5, bottom_percent: 25 as a default.`,
+              },
+              { inline_data: { mime_type: imageMime, data: imageBase64 } },
+            ],
+          }],
+          generationConfig: { temperature: 0 },
+        }),
+      },
+    );
+    if (!response.ok) {
+      const errBody = await response.text();
+      console.warn(`[mask] Gemini fascia detection API error: ${response.status}`, errBody);
+      return null;
+    }
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn("[mask] Gemini fascia detection: could not parse JSON from response");
+      return null;
+    }
+    const parsed = JSON.parse(jsonMatch[0]);
+    return {
+      topPercent: typeof parsed.top_percent === "number" ? parsed.top_percent : 5,
+      bottomPercent: typeof parsed.bottom_percent === "number" ? parsed.bottom_percent : 25,
+      leftPercent: typeof parsed.left_percent === "number" ? parsed.left_percent : 0,
+      rightPercent: typeof parsed.right_percent === "number" ? parsed.right_percent : 100,
+      confidence: typeof parsed.confidence === "string" ? parsed.confidence : "low",
+      notes: typeof parsed.notes === "string" ? parsed.notes : "",
+    };
+  } catch (e) {
+    console.warn("[mask] Gemini fascia detection exception:", e);
+    return null;
+  }
+}
+
+const DEFAULT_FASCIA_ZONE: FasciaZone = {
+  topPercent: 0, bottomPercent: 15, leftPercent: 0, rightPercent: 100,
+  confidence: "default", notes: "default top-band fallback",
+};
+
 function getSupabaseAdmin() {
   return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 }
@@ -322,6 +506,7 @@ serve(async (req) => {
     if (!OPENAI_API_KEY) return new Response(JSON.stringify({ error: "OpenAI API key not configured" }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 });
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
     const { data: jobData, error: jobError } = await supabaseAdmin
       .from("mockup_jobs")
@@ -421,10 +606,63 @@ You are producing a visualisation in the style of Signwave Australia — a profe
 • Illuminated fascia signs with polished aluminium surrounds
 • Australian strip-shopping and commercial retail context
 • Signs that look physically manufactured and installed — not digital overlays
-Every sign must look like it was fabricated by a professional sign company and physically installed on the building.`;
+Every sign must look like it was fabricated by a professional sign company and physically installed on the building.
+
+PHYSICAL REALISM (CRITICAL — DO NOT IGNORE):
+The sign must appear physically manufactured and installed — not digitally composited or overlaid.
+Every generated sign must have ALL of the following:
+• The sign casts a natural shadow on the wall surface behind it, consistent with the ambient light direction in the photograph
+• Mounting hardware is visible — screw fixings, standoffs, or aluminium extrusion edges at the perimeter of the sign
+• The sign surface has appropriate material texture — brushed aluminium, matte acrylic, painted steel — not a flat graphic
+• The perspective and foreshortening of the sign exactly matches the camera angle and lens distortion of the original photograph
+• The sign sits flush against the building surface or within a recessed channel — it does not float, hover, or appear pasted on
+• Lighting on the sign face is consistent with the light source and time of day visible in the photograph
+
+PLACEMENT CONSTRAINTS (CRITICAL):
+• Fascia signs within the existing fascia band ONLY — do not create, manufacture, or invent any new fascia panel, lightbox cabinet, sign surround, or architectural structure that does not physically exist in the original photograph
+• The fascia material, colour, depth, and profile must remain identical to the original — only the surface graphics change
+• Signs must NEVER overlap windows, glazing, roller doors, garage doors, or any architectural opening
+• Signs must NEVER overlap structural columns, pillars, or downpipes
+• Scale sign DOWN to fit — never expand fascia height or width
+• Place exactly ONE sign per instruction — no duplicates on secondary walls or upper floors`;
 
         let currentShopBase64 = shopImageBase64;
         let currentShopMime = shopMime;
+
+        // --- DISABLED: Masking temporarily disabled for A/B comparison ---
+        // To re-enable, uncomment this block and the two mask blocks below (search "MASK-DISABLED")
+        /*
+        // --- Detect fascia zone for masking (once, before sign loop) ---
+        let fasciaZone: FasciaZone;
+        if (GEMINI_API_KEY) {
+          await supabaseAdmin.from("mockup_jobs").update({ progress: "Detecting fascia zone...", updated_at: new Date().toISOString() }).eq("id", jobId);
+          const detected = await detectFasciaZone(shopImageBase64, shopMime, GEMINI_API_KEY);
+          if (detected && detected.confidence !== "low") {
+            console.log(`[mask] Gemini detected fascia zone: top=${detected.topPercent}% bottom=${detected.bottomPercent}% left=${detected.leftPercent}% right=${detected.rightPercent}% confidence=${detected.confidence}`);
+            // Add 5% padding in each direction for breathing room
+            fasciaZone = {
+              topPercent: Math.max(0, detected.topPercent - 5),
+              bottomPercent: Math.min(100, detected.bottomPercent + 5),
+              leftPercent: Math.max(0, detected.leftPercent - 5),
+              rightPercent: Math.min(100, detected.rightPercent + 5),
+              confidence: detected.confidence,
+              notes: detected.notes,
+            };
+            // Cap mask height to prevent over-masking (max 20% of image height)
+            if (fasciaZone.bottomPercent - fasciaZone.topPercent > 20) {
+              console.warn(`[mask] Capping mask height from ${(fasciaZone.bottomPercent - fasciaZone.topPercent).toFixed(1)}% to 20%`);
+              fasciaZone.bottomPercent = fasciaZone.topPercent + 20;
+            }
+          } else {
+            console.warn("[mask] Gemini detection failed, using default top-band mask");
+            fasciaZone = { ...DEFAULT_FASCIA_ZONE };
+          }
+        } else {
+          console.log("[mask] No GEMINI_API_KEY, using default top-band mask");
+          fasciaZone = { ...DEFAULT_FASCIA_ZONE };
+        }
+        */
+        console.log("[mask] Masking DISABLED for A/B comparison test");
 
         for (let signIndex = 0; signIndex < signs.length; signIndex++) {
           const s = signs[signIndex];
@@ -500,9 +738,34 @@ ${signSection}`;
           signPrompt += `
 RENDERING QUALITY: Match resolution, grain, and lighting of the background photo. Render consistent shadow direction, colour temperature, and surface material reflections.
 AMBIENT OCCLUSION: Render soft contact shadows at mounting points. Use shadow colour temperature from the photo — never pure black.
-BLACK LEVEL MATCHING: All dark tones must match the original photograph's black levels. Do NOT use pure #000000.`;
+BLACK LEVEL MATCHING: All dark tones must match the original photograph's black levels. Do NOT use pure #000000.
+
+STRICT OUTPUT CONSTRAINT: Generate ONLY the single sign described in the specification above. Do NOT add any additional signage, window graphics, vinyl decals, diagonal stripes, brand patterns, or any other visual elements anywhere else on the building. Every part of the building not covered by the specified sign must remain exactly as it appears in the original photograph.
+
+FINAL STRUCTURAL CHECK: The building architecture in this output must be identical to the input photograph. Any new box, panel, cabinet, cladding, or frame that was not present in the original photo is a generation failure. The sign sits ON the existing surface — it does not replace the surface.`;
 
           if (signIndex > 0) { signPrompt += `\n\nPREVIOUS SIGNS: The input image already contains ${signIndex} previously rendered sign(s). Do NOT remove, modify, or obscure them. Only add the new sign described above.`; }
+
+          // MASK-DISABLED: mask generation commented out for A/B comparison
+          /*
+          // Generate mask PNG for this sign (matches input image dimensions)
+          let maskBlob: Blob | null = null;
+          if (iterDims) {
+            const topPx = Math.round((fasciaZone.topPercent / 100) * iterDims.height);
+            const bottomPx = Math.round((fasciaZone.bottomPercent / 100) * iterDims.height);
+            const leftPx = Math.round((fasciaZone.leftPercent / 100) * iterDims.width);
+            const rightPx = Math.round((fasciaZone.rightPercent / 100) * iterDims.width);
+            try {
+              const maskPng = await generateMaskPNG(iterDims.width, iterDims.height, topPx, bottomPx, leftPx, rightPx);
+              maskBlob = new Blob([maskPng], { type: "image/png" });
+              console.log(`[mask] Generated mask PNG: ${iterDims.width}x${iterDims.height}, transparent zone y=${topPx}px–${bottomPx}px x=${leftPx}px–${rightPx}px`);
+            } catch (maskErr) {
+              console.warn("[mask] Failed to generate mask PNG, continuing without mask:", maskErr);
+            }
+          } else {
+            console.warn("[mask] Could not determine image dimensions, skipping mask");
+          }
+          */
 
           let lastGeneratedBase64: string | null = null;
           let lastGeneratedMime: string = "image/png";
@@ -540,6 +803,13 @@ BLACK LEVEL MATCHING: All dark tones must match the original photograph's black 
               const logoFileBlob = new Blob([logoBytes], { type: logoMime });
               formData.append("image[]", logoFileBlob, `logo.${logoMime === "image/png" ? "png" : "jpg"}`);
             }
+
+            // MASK-DISABLED: mask append commented out for A/B comparison
+            /*
+            if (maskBlob) {
+              formData.append("mask", maskBlob, "mask.png");
+            }
+            */
 
             const response = await fetch("https://api.openai.com/v1/images/edits", {
               method: "POST",
