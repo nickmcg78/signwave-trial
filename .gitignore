@@ -23,5 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 
+# Test outputs and images (large binary files)
+test_outputs/
+test_images/
+test_results.csv
+
 # Claude Code local settings
 .claude/

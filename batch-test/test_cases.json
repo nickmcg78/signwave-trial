@@ -1,0 +1,142 @@
+[
+  {
+    "id": "TC01",
+    "building": "building_1.png",
+    "description": "Wide industrial — fascia panel, clean canvas",
+    "sign_type": "fascia-panel",
+    "spec": "White aluminium fascia panel, full width of building, business name and logo centred, dark charcoal text, clean professional finish"
+  },
+  {
+    "id": "TC02",
+    "building": "building_1.png",
+    "description": "Wide industrial — dimensional letters",
+    "sign_type": "3d-letters",
+    "spec": "Individual 3D acrylic letters, 250mm height, gloss white, mounted to rendered grey facade above entrance, business name only"
+  },
+  {
+    "id": "TC03",
+    "building": "building_2.png",
+    "description": "Narrow hair salon — fascia replacement, tight fit",
+    "sign_type": "fascia-panel",
+    "spec": "Replace existing fascia sign with white aluminium fascia panel, full width, business name and logo centred, dark charcoal text, must fit within existing fascia band dimensions"
+  },
+  {
+    "id": "TC04",
+    "building": "building_2.png",
+    "description": "Narrow hair salon — illuminated fascia replacement",
+    "sign_type": "lightbox",
+    "spec": "Replace existing fascia with illuminated lightbox, white acrylic face, business name and logo backlit, slim aluminium frame, must not expand beyond existing fascia height"
+  },
+  {
+    "id": "TC05",
+    "building": "building_3.png",
+    "description": "Dark café — fascia replacement with tree obstruction",
+    "sign_type": "fascia-panel",
+    "spec": "Replace existing THE LOCAL sign with white fascia panel, business name and logo centred, clean minimal finish, match existing fascia band dimensions"
+  },
+  {
+    "id": "TC06",
+    "building": "building_3.png",
+    "description": "Dark café — window vinyl on large glass windows",
+    "sign_type": "window-perf",
+    "spec": "Frosted white vinyl band across lower third of glass windows, business name in large sans-serif centred, semi-transparent, interior still visible through upper glass"
+  },
+  {
+    "id": "TC07",
+    "building": "building_4.png",
+    "description": "Metro Pharmacy — fascia replacement, constrained width",
+    "sign_type": "fascia-panel",
+    "spec": "Replace existing METRO PHARMACY fascia sign with clean white aluminium panel, business name and logo centred, dark navy text, must fit within existing fascia band"
+  },
+  {
+    "id": "TC08",
+    "building": "building_4.png",
+    "description": "Metro Pharmacy — window vinyl over busy window signage",
+    "sign_type": "window-perf",
+    "spec": "Semi-transparent vinyl band across lower window, business name centred in clean sans-serif, white text, covers existing window posters, interior faintly visible"
+  },
+  {
+    "id": "TC09",
+    "building": "building_5.png",
+    "description": "Corner café — fascia replacement, two-face building",
+    "sign_type": "fascia-panel",
+    "spec": "Replace existing CORNER CAFÉ fascia sign on the primary front face with white aluminium fascia panel, business name and logo centred, dark text, clean professional finish"
+  },
+  {
+    "id": "TC10",
+    "building": "building_5.png",
+    "description": "Corner café — blade sign on corner pillar",
+    "sign_type": "blade-sign",
+    "spec": "Projecting blade sign on the corner structural pillar, 600mm wide x 900mm tall, double-sided, white background, business logo centred, dark text, aluminium frame"
+  },
+  {
+    "id": "TC11",
+    "building": "building_5.png",
+    "description": "Corner café — illuminated fascia replacement",
+    "sign_type": "lightbox",
+    "spec": "Replace existing fascia with illuminated lightbox fascia on primary face, white acrylic, business name and logo backlit, slim dark frame, warm white illumination"
+  },
+  {
+    "id": "TC12",
+    "building": "building_6.png",
+    "description": "Regional General Store — fascia replacement, weathered facade",
+    "sign_type": "fascia-panel",
+    "spec": "Replace faded GENERAL STORE sign with clean white aluminium fascia panel, business name and logo centred, dark text, must fit within existing painted fascia zone"
+  },
+  {
+    "id": "TC13",
+    "building": "building_6.png",
+    "description": "Regional General Store — dimensional letters on weathered wall",
+    "sign_type": "3d-letters",
+    "spec": "Individual 3D acrylic letters, 200mm height, gloss white, mounted to weathered rendered facade below roofline, business name only, bold sans-serif"
+  },
+  {
+    "id": "TC14",
+    "building": "building_7.png",
+    "description": "Vacant wide shop — fascia panel, blank canvas",
+    "sign_type": "fascia-panel",
+    "spec": "White aluminium fascia panel, full width, business name and logo centred, dark charcoal text, clean professional finish, generous spacing"
+  },
+  {
+    "id": "TC15",
+    "building": "building_7.png",
+    "description": "Vacant wide shop — window vinyl on large shopfront glass",
+    "sign_type": "window-perf",
+    "spec": "Frosted white vinyl band across full width of lower window zone, business name large and centred, semi-transparent, interior faintly visible, clean minimal style"
+  },
+  {
+    "id": "TC16",
+    "building": "building_7.png",
+    "description": "Vacant wide shop — illuminated fascia, blank canvas",
+    "sign_type": "lightbox",
+    "spec": "Illuminated lightbox fascia, full width, white acrylic face, business name and logo backlit, slim aluminium frame"
+  },
+  {
+    "id": "TC17",
+    "building": "building_8.png",
+    "description": "Brick building with columns — dimensional letters above entrance",
+    "sign_type": "3d-letters",
+    "spec": "Individual 3D acrylic letters, 200mm height, gloss white, mounted to cream rendered fascia band above entrance columns, business name only, clean sans-serif"
+  },
+  {
+    "id": "TC18",
+    "building": "building_8.png",
+    "description": "Brick building with columns — premium fascia panel",
+    "sign_type": "fascia-panel",
+    "spec": "Premium flat fascia panel in dark charcoal, fitted between rendered columns, business name and logo in white, minimal spacing, high contrast finish"
+  },
+  {
+    "id": "TC19",
+    "building": "building_8.png",
+    "description": "Brick building — window vinyl on large display windows",
+    "sign_type": "window-perf",
+    "spec": "Cut white vinyl lettering on lower window panels, business name in clean sans-serif, no background fill, letter height 120mm, centred across window width"
+  },
+  {
+    "id": "TC20",
+    "building": "building_1.png",
+    "description": "Wide industrial — multi-sign: fascia + dimensional letters",
+    "sign_type": "fascia-panel",
+    "spec": "White aluminium fascia panel full width above roller door zone, business name and logo centred, dark text — this is Sign 1 of a multi-sign test"
+  }
+]
