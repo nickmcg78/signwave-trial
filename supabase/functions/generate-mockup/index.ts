@@ -794,9 +794,10 @@ FINAL STRUCTURAL CHECK: The building architecture in this output must be identic
             const imageExt = currentShopMime === "image/png" ? "png" : "jpg";
 
             const formData = new FormData();
-            formData.append("model", "gpt-image-1");
+            formData.append("model", "dall-e-2");
             formData.append("image", imageBlob, `building.${imageExt}`);
             formData.append("prompt", attemptPrompt);
+            formData.append("size", "1024x1024");
             formData.append("response_format", "b64_json");
 
             if (maskBase64) {
@@ -805,7 +806,7 @@ FINAL STRUCTURAL CHECK: The building architecture in this output must be identic
               formData.append("mask", maskBlob, "mask.png");
             }
 
-            console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: OpenAI gpt-image-1 /v1/images/edits, mask=${!!maskBase64}, logo=${!!logoBase64}, AR=${iterAR?.toFixed(4)}`);
+            console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: OpenAI dall-e-2 /v1/images/edits, mask=${!!maskBase64}, logo=${!!logoBase64}, AR=${iterAR?.toFixed(4)}`);
 
             const response = await fetch("https://api.openai.com/v1/images/edits", {
               method: "POST",
