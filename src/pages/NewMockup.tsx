@@ -8,11 +8,10 @@ import { supabase } from '../lib/supabase'
 // template — we translate at the boundary rather than renaming either side.
 const SIGN_TYPE_MAP: Record<string, string> = {
   fascia_panel: 'fascia-panel',
-  illuminated_fascia: 'lightbox',
-  blade_sign: 'blade-sign',
-  window_vinyl: 'window-perf',
+  illuminated_dimensional_letters: '3d-letters',
   dimensional_letters: '3d-letters',
-  monument_sign: 'fascia-panel',
+  lightbox: 'lightbox',
+  window_vinyl: 'window-perf',
 }
 
 // Read a File into a base64 data URL. We POST these to the edge function
@@ -41,6 +40,8 @@ function fileToDataUrl(file: File): Promise<string> {
 type Sign = {
   signType: string
   spec: string
+  replaceExisting: boolean
+  contactDetails: string
 }
 
 type WizardState = {
@@ -117,12 +118,23 @@ export default function NewMockup() {
         fileToDataUrl(state.logo),
       ])
 
-      const mappedSigns = state.signs.map(s => ({
-        signType: SIGN_TYPE_MAP[s.signType] ?? 'fascia-panel',
-        signPosition: s.spec,
-        replaceExisting: true,
-        existingSignDescription: '',
-      }))
+      const mappedSigns = state.signs.map(s => {
+        // When replacing, prepend the replacement framing to the spec so the
+        // AI knows to swap the existing sign rather than add a second one.
+        const signTypeName = SIGN_TYPES.find(t => t.id === s.signType)?.name ?? s.signType
+        const replacePreamble = REPLACE_PREFIX.replace('[sign type]', signTypeName)
+        const fullSpec = s.replaceExisting
+          ? `${replacePreamble}\n\n${s.spec}`
+          : s.spec
+
+        return {
+          signType: SIGN_TYPE_MAP[s.signType] ?? 'fascia-panel',
+          signPosition: fullSpec,
+          replaceExisting: s.replaceExisting,
+          existingSignDescription: '',
+          contactDetails: s.contactDetails || '',
+        }
+      })
 
       const { data, error } = await supabase.functions.invoke('generate-mockup', {
         body: {
@@ -422,49 +434,57 @@ function StepLogo({ state, setState }: StepProps) {
   )
 }
 
-// Canonical list of sign types the franchise supports. If more get added
-// later, append to this array — the grid and selection logic handle any count.
-const SIGN_TYPES: { id: string; name: string; description: string }[] = [
+// Canonical list of sign types the franchise supports. Each entry includes a
+// short description (shown under the type name in the selector) and a default
+// spec that pre-fills the textarea when the type is chosen.
+const SIGN_TYPES: { id: string; name: string; description: string; defaultSpec: string }[] = [
   {
     id: 'fascia_panel',
     name: 'Fascia Panel',
-    description: 'Flat panel mounted to building face',
+    description: 'Flat panel mounted flush to the building parapet or fascia band',
+    defaultSpec:
+      'Flat aluminium composite panel (ACM) mounted flush to the existing fascia/parapet surface. Panel spans 80% of fascia width, centred horizontally. Background colour matches brand palette. Logo centred at 60% of panel width in contrasting colour. No cabinet depth — panel sits flat against the existing surface.',
   },
   {
-    id: 'illuminated_fascia',
-    name: 'Illuminated Fascia',
-    description: 'Lightbox or backlit fascia sign',
-  },
-  {
-    id: 'blade_sign',
-    name: 'Blade Sign',
-    description: 'Projects perpendicular from the building',
-  },
-  {
-    id: 'window_vinyl',
-    name: 'Window Vinyl',
-    description: 'Applied directly to glass',
+    id: 'illuminated_dimensional_letters',
+    name: 'Illuminated Dimensional Letters',
+    description: 'Halo or front-lit letters mounted directly to the building surface',
+    defaultSpec:
+      'Individual illuminated dimensional letters mounted directly to the existing fascia or parapet wall. Letters halo-lit or front-lit in brand colours. 300mm letter height, 40mm depth, stainless or painted aluminium construction. Even spacing, stud-mounted, casting natural shadow on wall behind.',
   },
   {
     id: 'dimensional_letters',
     name: 'Dimensional Letters',
-    description: 'Individual 3D letters mounted to surface',
+    description: 'Cut-out letters in metal or acrylic, mounted direct to wall',
+    defaultSpec:
+      'Individual cut-out dimensional letters in brushed aluminium or painted finish, mounted flush to existing rendered or clad wall surface. 250mm letter height, 25mm depth. No backing panel — letters sit directly on the building surface with visible shadow.',
   },
   {
-    id: 'monument_sign',
-    name: 'Monument Sign',
-    description: 'Freestanding sign at ground level',
+    id: 'lightbox',
+    name: 'Lightbox / Illuminated Fascia',
+    description: 'Slim backlit cabinet with printed acrylic face',
+    defaultSpec:
+      'Slim-profile lightbox cabinet, 120mm deep, mounted within the existing fascia band. White acrylic face with full-colour printed graphic. Polished aluminium frame. Even internal LED illumination. Cabinet width 80% of fascia, centred horizontally.',
+  },
+  {
+    id: 'window_vinyl',
+    name: 'Window Vinyl',
+    description: 'Printed or frosted vinyl applied directly to glass',
+    defaultSpec:
+      'Frosted white vinyl band across lower third of window glass. Logo reversed out in clear vinyl at centre. 200mm band height, full window width.',
   },
 ]
 
 function StepType({ state, setState, signIndex }: StepProps) {
   function selectType(id: string) {
+    const defaultSpec = SIGN_TYPES.find(t => t.id === id)?.defaultSpec ?? ''
     setState(prev => {
       const newSigns = [...prev.signs]
-      if (newSigns[signIndex]) {
-        newSigns[signIndex] = { ...newSigns[signIndex], signType: id }
+      const existing = newSigns[signIndex]
+      if (existing) {
+        newSigns[signIndex] = { ...existing, signType: id, spec: defaultSpec }
       } else {
-        newSigns[signIndex] = { signType: id, spec: '' }
+        newSigns[signIndex] = { signType: id, spec: defaultSpec, replaceExisting: true, contactDetails: '' }
       }
       return { ...prev, signs: newSigns }
     })
@@ -505,22 +525,40 @@ function StepType({ state, setState, signIndex }: StepProps) {
   )
 }
 
+// The text prepended to the spec when "Replace existing sign" is selected.
+const REPLACE_PREFIX =
+  'Replace the existing sign on the fascia with a new [sign type]. Match the position, width, and mounting location of the existing sign exactly. Do not change the fascia dimensions or building structure.'
+
 function StepSpec({ state, setState, signIndex, onAddSign }: StepProps) {
-  const spec = state.signs[signIndex]?.spec ?? ''
+  const sign = state.signs[signIndex]
+  const spec = sign?.spec ?? ''
+  const replaceExisting = sign?.replaceExisting ?? true
+  const contactDetails = sign?.contactDetails ?? ''
   const showReview = spec.length >= 10
   const canAddMore = signIndex < 2 && showReview
 
-  function handleSpecChange(e: ChangeEvent<HTMLTextAreaElement>) {
-    const value = e.target.value
+  function updateSign(patch: Partial<Sign>) {
     setState(prev => {
       const newSigns = [...prev.signs]
       if (newSigns[signIndex]) {
-        newSigns[signIndex] = { ...newSigns[signIndex], spec: value }
+        newSigns[signIndex] = { ...newSigns[signIndex], ...patch }
       } else {
-        newSigns[signIndex] = { signType: '', spec: value }
+        newSigns[signIndex] = { signType: '', spec: '', replaceExisting: true, contactDetails: '', ...patch }
       }
       return { ...prev, signs: newSigns }
     })
+  }
+
+  function handleToggle(replace: boolean) {
+    updateSign({ replaceExisting: replace })
+  }
+
+  function handleSpecChange(e: ChangeEvent<HTMLTextAreaElement>) {
+    updateSign({ spec: e.target.value })
+  }
+
+  function handleContactChange(e: ChangeEvent<HTMLInputElement>) {
+    updateSign({ contactDetails: e.target.value })
   }
 
   return (
@@ -531,6 +569,32 @@ function StepSpec({ state, setState, signIndex, onAddSign }: StepProps) {
       <p className="text-gray-500 text-sm mt-1">
         Include size, finish, colours, or anything specific.
       </p>
+
+      {/* Replace vs Add toggle — segmented control */}
+      <div className="mt-4 flex rounded-xl border border-gray-300 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => handleToggle(true)}
+          className={`flex-1 min-h-[48px] text-sm font-semibold transition-colors ${
+            replaceExisting
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-gray-600 active:bg-gray-50'
+          }`}
+        >
+          Replace existing sign
+        </button>
+        <button
+          type="button"
+          onClick={() => handleToggle(false)}
+          className={`flex-1 min-h-[48px] text-sm font-semibold border-l border-gray-300 transition-colors ${
+            !replaceExisting
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-gray-600 active:bg-gray-50'
+          }`}
+        >
+          Add new sign to building
+        </button>
+      </div>
 
       {/* Summary of previously configured signs */}
       {signIndex > 0 && (
@@ -557,11 +621,29 @@ function StepSpec({ state, setState, signIndex, onAddSign }: StepProps) {
       <textarea
         value={spec}
         onChange={handleSpecChange}
-        rows={4}
+        rows={5}
         placeholder="e.g. 6m wide aluminium fascia panel, white background, navy text, satin finish"
         style={{ fontSize: '16px' }}
         className="mt-4 w-full text-base rounded-xl border border-gray-300 p-4 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
       />
+
+      {/* Contact details — optional single-line input */}
+      <label className="block mt-4">
+        <span className="text-sm font-medium text-gray-700">Contact details (optional)</span>
+        <input
+          type="text"
+          value={contactDetails}
+          onChange={handleContactChange}
+          placeholder="e.g. 03 9123 4567  |  www.businessname.com.au"
+          style={{ fontSize: '16px' }}
+          className="mt-1 w-full min-h-[48px] text-base rounded-xl border border-gray-300 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+      </label>
+
+      {/* Info line */}
+      <p className="mt-3 text-xs text-gray-400">
+        This tool is designed for exterior shopfront signage only.
+      </p>
 
       {showReview && (
         <div className="mt-6 bg-white rounded-2xl border border-gray-200 p-4">
@@ -594,6 +676,9 @@ function StepSpec({ state, setState, signIndex, onAddSign }: StepProps) {
                       : signTypeName(s.signType)}
                   </span>
                   <p className="text-sm text-gray-700 mt-1 line-clamp-2">{s.spec}</p>
+                  {s.contactDetails && (
+                    <p className="text-xs text-gray-500 mt-1">Contact: {s.contactDetails}</p>
+                  )}
                 </div>
               ))}
             </div>

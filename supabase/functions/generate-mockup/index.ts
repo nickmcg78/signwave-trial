@@ -314,10 +314,15 @@ async function generateMaskPNG(
   opaqueRow[0] = 0; // PNG filter: None
   for (let x = 0; x < width; x++) opaqueRow[1 + x * 4 + 3] = 255;
 
-  const zoneRow = new Uint8Array(rowLen); // transparent in the fascia zone
+  const zoneRow = new Uint8Array(rowLen); // white in fascia zone (fal.ai: white=inpaint)
   zoneRow[0] = 0;
   for (let x = 0; x < width; x++) {
-    zoneRow[1 + x * 4 + 3] = (x >= leftPx && x < rightPx) ? 0 : 255;
+    if (x >= leftPx && x < rightPx) {
+      zoneRow[1 + x * 4] = 255;     // R
+      zoneRow[1 + x * 4 + 1] = 255; // G
+      zoneRow[1 + x * 4 + 2] = 255; // B
+    }
+    zoneRow[1 + x * 4 + 3] = 255;   // A (always opaque)
   }
 
   // Assemble raw scanlines
@@ -481,29 +486,31 @@ serve(async (req) => {
     const timeOfDayValidation = validateString(body.timeOfDay, "Time of day", 20);
     const timeOfDay = timeOfDayValidation.valid ? timeOfDayValidation.value : "day";
 
-    interface SignInput { signType: string; signPosition: string; replaceExisting: boolean; existingSignDescription: string; }
+    interface SignInput { signType: string; signPosition: string; replaceExisting: boolean; existingSignDescription: string; contactDetails: string; }
     let signs: SignInput[] = [];
 
     if (Array.isArray(body.signs) && body.signs.length > 0) {
       for (const s of body.signs) {
         const stv = validateString(s.signType, "Sign type", 100, true);
         if (!stv.valid) return new Response(JSON.stringify({ error: stv.error }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 });
-        const spv = validateString(s.signPosition, "Sign position", 100);
+        const spv = validateString(s.signPosition, "Sign position", 2000);
         const esdv = validateString(s.existingSignDescription, "Existing sign description", 300);
-        signs.push({ signType: stv.value, signPosition: spv.valid ? spv.value : "", replaceExisting: s.replaceExisting === true, existingSignDescription: esdv.valid ? esdv.value : "" });
+        const cdv = validateString(s.contactDetails, "Contact details", 200);
+        signs.push({ signType: stv.value, signPosition: spv.valid ? spv.value : "", replaceExisting: s.replaceExisting === true, existingSignDescription: esdv.valid ? esdv.value : "", contactDetails: cdv.valid ? cdv.value : "" });
       }
     } else {
       const signTypeValidation = validateString(body.signType, "Sign type", 100, true);
       if (!signTypeValidation.valid) return new Response(JSON.stringify({ error: signTypeValidation.error }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 });
-      const signPositionValidation = validateString(body.signPosition, "Sign position", 100);
+      const signPositionValidation = validateString(body.signPosition, "Sign position", 2000);
       const existingSignDescValidation = validateString(body.existingSignDescription, "Existing sign description", 300);
-      signs.push({ signType: signTypeValidation.value, signPosition: signPositionValidation.valid ? signPositionValidation.value : "", replaceExisting: body.replaceExisting === true, existingSignDescription: existingSignDescValidation.valid ? existingSignDescValidation.value : "" });
+      const contactDetailsValidation = validateString(body.contactDetails, "Contact details", 200);
+      signs.push({ signType: signTypeValidation.value, signPosition: signPositionValidation.valid ? signPositionValidation.value : "", replaceExisting: body.replaceExisting === true, existingSignDescription: existingSignDescValidation.valid ? existingSignDescValidation.value : "", contactDetails: contactDetailsValidation.valid ? contactDetailsValidation.value : "" });
     }
 
     console.log(`[generate-mockup] ${signs.length} sign(s) requested`);
 
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) return new Response(JSON.stringify({ error: "OpenAI API key not configured" }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 });
+    const FAL_API_KEY = Deno.env.get("FAL_API_KEY");
+    if (!FAL_API_KEY) return new Response(JSON.stringify({ error: "fal.ai API key not configured" }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 });
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
@@ -629,10 +636,7 @@ PLACEMENT CONSTRAINTS (CRITICAL):
         let currentShopBase64 = shopImageBase64;
         let currentShopMime = shopMime;
 
-        // --- DISABLED: Masking temporarily disabled for A/B comparison ---
-        // To re-enable, uncomment this block and the two mask blocks below (search "MASK-DISABLED")
-        /*
-        // --- Detect fascia zone for masking (once, before sign loop) ---
+        // --- Detect fascia zone for masking (optional for Flux Kontext Lora Inpaint) ---
         let fasciaZone: FasciaZone;
         if (GEMINI_API_KEY) {
           await supabaseAdmin.from("mockup_jobs").update({ progress: "Detecting fascia zone...", updated_at: new Date().toISOString() }).eq("id", jobId);
@@ -661,8 +665,6 @@ PLACEMENT CONSTRAINTS (CRITICAL):
           console.log("[mask] No GEMINI_API_KEY, using default top-band mask");
           fasciaZone = { ...DEFAULT_FASCIA_ZONE };
         }
-        */
-        console.log("[mask] Masking DISABLED for A/B comparison test");
 
         for (let signIndex = 0; signIndex < signs.length; signIndex++) {
           const s = signs[signIndex];
@@ -721,7 +723,8 @@ SINGLE-PLACEMENT LOCK (CRITICAL):
 ${signSection}`;
 
           if (tagline) { signPrompt += `\nTagline: Include the tagline "${tagline}" as part of the signage display.`; }
-          if (logoBase64) { signPrompt += `\nLOGO: The second image provided is the client's logo. Reproduce it accurately on the sign — correct colours, correct proportions, legible text.`; }
+          if (s.contactDetails) { signPrompt += `\nCONTACT DETAILS: Include the following contact details on the sign: ${s.contactDetails}`; }
+          if (logoBase64) { signPrompt += `\nLOGO: Reproduce the client's brand logo accurately on the sign — correct colours, correct proportions, legible text.`; }
 
           signPrompt += `\nPhysical Specifications: ${sizeDescriptions[size] || sizeDescriptions.medium} ${finishDescriptions[finish] || finishDescriptions.standard}`;
 
@@ -746,10 +749,8 @@ FINAL STRUCTURAL CHECK: The building architecture in this output must be identic
 
           if (signIndex > 0) { signPrompt += `\n\nPREVIOUS SIGNS: The input image already contains ${signIndex} previously rendered sign(s). Do NOT remove, modify, or obscure them. Only add the new sign described above.`; }
 
-          // MASK-DISABLED: mask generation commented out for A/B comparison
-          /*
-          // Generate mask PNG for this sign (matches input image dimensions)
-          let maskBlob: Blob | null = null;
+          // Generate mask PNG for this sign (optional for inpainting)
+          let maskBase64: string | null = null;
           if (iterDims) {
             const topPx = Math.round((fasciaZone.topPercent / 100) * iterDims.height);
             const bottomPx = Math.round((fasciaZone.bottomPercent / 100) * iterDims.height);
@@ -757,15 +758,14 @@ FINAL STRUCTURAL CHECK: The building architecture in this output must be identic
             const rightPx = Math.round((fasciaZone.rightPercent / 100) * iterDims.width);
             try {
               const maskPng = await generateMaskPNG(iterDims.width, iterDims.height, topPx, bottomPx, leftPx, rightPx);
-              maskBlob = new Blob([maskPng], { type: "image/png" });
-              console.log(`[mask] Generated mask PNG: ${iterDims.width}x${iterDims.height}, transparent zone y=${topPx}px–${bottomPx}px x=${leftPx}px–${rightPx}px`);
+              maskBase64 = arrayBufferToBase64(maskPng.buffer);
+              console.log(`[mask] Generated mask PNG: ${iterDims.width}x${iterDims.height}, white zone y=${topPx}px–${bottomPx}px x=${leftPx}px–${rightPx}px`);
             } catch (maskErr) {
               console.warn("[mask] Failed to generate mask PNG, continuing without mask:", maskErr);
             }
           } else {
             console.warn("[mask] Could not determine image dimensions, skipping mask");
           }
-          */
 
           let lastGeneratedBase64: string | null = null;
           let lastGeneratedMime: string = "image/png";
@@ -786,65 +786,67 @@ FINAL STRUCTURAL CHECK: The building architecture in this output must be identic
               attemptPrompt += `\n\n⚠️ REPAIR MODE (attempt ${attempt}): Previous generation FAILED framing integrity (${lastFailReason}).${edgeInfo}${repairDirective}${isFinalAttempt ? " FINAL ATTEMPT: absolute edge-lock required." : ""}`;
             }
 
-            const formData = new FormData();
-            formData.append("model", "gpt-image-1");
-            formData.append("prompt", attemptPrompt);
-            formData.append("n", "1");
-            const bestSize = iterAR && iterAR > 1.2 ? "1536x1024" : iterAR && iterAR < 0.8 ? "1024x1536" : "1024x1024";
-            formData.append("size", bestSize);
-            console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: size=${bestSize}, AR=${iterAR?.toFixed(4)}`);
-
-            const inputBytes = base64DecodeToBytes(currentShopBase64);
-            const inputBlob = new Blob([inputBytes], { type: currentShopMime });
-            formData.append("image[]", inputBlob, `shop.${currentShopMime === "image/png" ? "png" : "jpg"}`);
-
+            // Build fal.ai Flux Kontext Lora Inpaint request
+            const imageDataUrl = `data:${currentShopMime};base64,${currentShopBase64}`;
+            const falBody: Record<string, unknown> = {
+              image_url: imageDataUrl,
+              prompt: attemptPrompt,
+            };
             if (logoBase64) {
-              const logoBytes = base64DecodeToBytes(logoBase64);
-              const logoFileBlob = new Blob([logoBytes], { type: logoMime });
-              formData.append("image[]", logoFileBlob, `logo.${logoMime === "image/png" ? "png" : "jpg"}`);
+              falBody.reference_image_url = `data:${logoMime};base64,${logoBase64}`;
             }
-
-            // MASK-DISABLED: mask append commented out for A/B comparison
-            /*
-            if (maskBlob) {
-              formData.append("mask", maskBlob, "mask.png");
+            if (maskBase64) {
+              falBody.mask_url = `data:image/png;base64,${maskBase64}`;
             }
-            */
+            console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: fal.ai Flux Kontext Lora Inpaint, mask=${!!maskBase64}, logo=${!!logoBase64}, AR=${iterAR?.toFixed(4)}`);
 
-            const response = await fetch("https://api.openai.com/v1/images/edits", {
+            const response = await fetch("https://fal.run/fal-ai/flux-kontext-lora/inpaint", {
               method: "POST",
-              headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-              body: formData,
+              headers: {
+                Authorization: `Key ${FAL_API_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(falBody),
             });
 
             if (!response.ok) {
               const errorBody = await response.text();
-              console.error(`[generate-mockup] ${signLabel} Attempt ${attempt} OpenAI API error:`, response.status, errorBody);
+              console.error(`[generate-mockup] ${signLabel} Attempt ${attempt} fal.ai API error: HTTP ${response.status}`, errorBody);
               if (response.status === 429) throw new Error("Too many AI requests. Please wait a moment and try again.");
-              if (response.status === 400) {
-                let userMessage = "The AI could not process the provided image. Please try a different photo or re-upload.";
-                try {
-                  const errJson = JSON.parse(errorBody);
-                  const code = errJson?.error?.code;
-                  if (code === "billing_hard_limit_reached" || code === "insufficient_quota") userMessage = "AI billing limit reached. Please check your OpenAI account billing settings.";
-                } catch { /* use default message */ }
-                throw new Error(userMessage);
+              if (response.status === 401 || response.status === 403) {
+                console.error(`[generate-mockup] fal.ai auth failed. Key prefix: ${FAL_API_KEY?.substring(0, 8)}...`);
+                throw new Error("fal.ai API key invalid or not configured correctly.");
               }
-              if (response.status === 401) throw new Error("OpenAI API key invalid or not configured correctly.");
+              if (response.status === 422) {
+                console.error(`[generate-mockup] fal.ai validation error:`, errorBody);
+                throw new Error("The AI could not process the provided image. Please try a different photo or re-upload.");
+              }
               if (attempt < MAX_GENERATION_ATTEMPTS) { lastFailReason = `api_error_${response.status}`; continue; }
               throw new Error(`Sign ${signIndex + 1} could not be generated. Please try again.`);
             }
 
             const data = await response.json();
-            const genB64: string | undefined = data.data?.[0]?.b64_json;
+            const resultUrl: string | undefined = data.images?.[0]?.url;
 
-            if (!genB64) {
-              console.warn(`[generate-mockup] ${signLabel} Attempt ${attempt}: No image in OpenAI response`);
+            if (!resultUrl) {
+              console.warn(`[generate-mockup] ${signLabel} Attempt ${attempt}: No image URL in fal.ai response`);
               if (attempt < MAX_GENERATION_ATTEMPTS) { lastFailReason = "no_image_in_response"; continue; }
               throw new Error(`Sign ${signIndex + 1} could not be generated. Please try again.`);
             }
 
-            const genMime = "image/png";
+            // Fetch the generated image from fal.ai URL and convert to base64
+            let genB64: string;
+            let genMime: string;
+            try {
+              const fetched = await fetchImageAsBase64(resultUrl);
+              genB64 = fetched.base64;
+              genMime = fetched.mime;
+            } catch (fetchErr) {
+              console.error(`[generate-mockup] ${signLabel} Attempt ${attempt}: Failed to fetch result image:`, fetchErr);
+              if (attempt < MAX_GENERATION_ATTEMPTS) { lastFailReason = "result_fetch_failed"; continue; }
+              throw new Error(`Sign ${signIndex + 1} could not be generated. Please try again.`);
+            }
+
             lastGeneratedMime = genMime;
             lastGeneratedBase64 = genB64;
 
