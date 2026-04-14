@@ -509,8 +509,8 @@ serve(async (req) => {
 
     console.log(`[generate-mockup] ${signs.length} sign(s) requested`);
 
-    const FAL_API_KEY = Deno.env.get("FAL_API_KEY");
-    if (!FAL_API_KEY) return new Response(JSON.stringify({ error: "fal.ai API key not configured" }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 });
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) return new Response(JSON.stringify({ error: "OpenAI API key not configured" }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 });
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
@@ -786,39 +786,45 @@ FINAL STRUCTURAL CHECK: The building architecture in this output must be identic
               attemptPrompt += `\n\n⚠️ REPAIR MODE (attempt ${attempt}): Previous generation FAILED framing integrity (${lastFailReason}).${edgeInfo}${repairDirective}${isFinalAttempt ? " FINAL ATTEMPT: absolute edge-lock required." : ""}`;
             }
 
-            // Build fal.ai Flux Kontext Lora Inpaint request
-            const imageDataUrl = `data:${currentShopMime};base64,${currentShopBase64}`;
-            const falBody: Record<string, unknown> = {
-              image_url: imageDataUrl,
-              prompt: attemptPrompt,
-            };
-            if (logoBase64) {
-              falBody.reference_image_url = `data:${logoMime};base64,${logoBase64}`;
-            }
-            if (maskBase64) {
-              falBody.mask_url = `data:image/png;base64,${maskBase64}`;
-            }
-            console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: fal.ai Flux Kontext Lora Inpaint, mask=${!!maskBase64}, logo=${!!logoBase64}, AR=${iterAR?.toFixed(4)}`);
+            // Build OpenAI gpt-image-1 /v1/images/edits multipart request.
+            // The API expects the image as a file upload (Blob), NOT a data URL,
+            // so we decode the base64 into binary and wrap it in a Blob.
+            const imageBytes = base64DecodeToBytes(currentShopBase64);
+            const imageBlob = new Blob([imageBytes], { type: currentShopMime });
+            const imageExt = currentShopMime === "image/png" ? "png" : "jpg";
 
-            const response = await fetch("https://fal.run/fal-ai/flux-kontext-lora/inpaint", {
+            const formData = new FormData();
+            formData.append("model", "gpt-image-1");
+            formData.append("image", imageBlob, `building.${imageExt}`);
+            formData.append("prompt", attemptPrompt);
+            formData.append("response_format", "b64_json");
+
+            if (maskBase64) {
+              const maskBytes = base64DecodeToBytes(maskBase64);
+              const maskBlob = new Blob([maskBytes], { type: "image/png" });
+              formData.append("mask", maskBlob, "mask.png");
+            }
+
+            console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: OpenAI gpt-image-1 /v1/images/edits, mask=${!!maskBase64}, logo=${!!logoBase64}, AR=${iterAR?.toFixed(4)}`);
+
+            const response = await fetch("https://api.openai.com/v1/images/edits", {
               method: "POST",
               headers: {
-                Authorization: `Key ${FAL_API_KEY}`,
-                "Content-Type": "application/json",
+                Authorization: `Bearer ${OPENAI_API_KEY}`,
               },
-              body: JSON.stringify(falBody),
+              body: formData,
             });
 
             if (!response.ok) {
               const errorBody = await response.text();
-              console.error(`[generate-mockup] ${signLabel} Attempt ${attempt} fal.ai API error: HTTP ${response.status}`, errorBody);
+              console.error(`[generate-mockup] ${signLabel} Attempt ${attempt} OpenAI API error: HTTP ${response.status}`, errorBody);
               if (response.status === 429) throw new Error("Too many AI requests. Please wait a moment and try again.");
               if (response.status === 401 || response.status === 403) {
-                console.error(`[generate-mockup] fal.ai auth failed. Key prefix: ${FAL_API_KEY?.substring(0, 8)}...`);
-                throw new Error("fal.ai API key invalid or not configured correctly.");
+                console.error(`[generate-mockup] OpenAI auth failed. Key prefix: ${OPENAI_API_KEY?.substring(0, 8)}...`);
+                throw new Error("OpenAI API key invalid or not configured correctly.");
               }
-              if (response.status === 422) {
-                console.error(`[generate-mockup] fal.ai validation error:`, errorBody);
+              if (response.status === 400) {
+                console.error(`[generate-mockup] OpenAI validation error:`, errorBody);
                 throw new Error("The AI could not process the provided image. Please try a different photo or re-upload.");
               }
               if (attempt < MAX_GENERATION_ATTEMPTS) { lastFailReason = `api_error_${response.status}`; continue; }
@@ -826,26 +832,17 @@ FINAL STRUCTURAL CHECK: The building architecture in this output must be identic
             }
 
             const data = await response.json();
-            const resultUrl: string | undefined = data.images?.[0]?.url;
+            const b64Result: string | undefined = data.data?.[0]?.b64_json;
 
-            if (!resultUrl) {
-              console.warn(`[generate-mockup] ${signLabel} Attempt ${attempt}: No image URL in fal.ai response`);
+            if (!b64Result) {
+              console.warn(`[generate-mockup] ${signLabel} Attempt ${attempt}: No b64_json in OpenAI response`);
               if (attempt < MAX_GENERATION_ATTEMPTS) { lastFailReason = "no_image_in_response"; continue; }
               throw new Error(`Sign ${signIndex + 1} could not be generated. Please try again.`);
             }
 
-            // Fetch the generated image from fal.ai URL and convert to base64
-            let genB64: string;
-            let genMime: string;
-            try {
-              const fetched = await fetchImageAsBase64(resultUrl);
-              genB64 = fetched.base64;
-              genMime = fetched.mime;
-            } catch (fetchErr) {
-              console.error(`[generate-mockup] ${signLabel} Attempt ${attempt}: Failed to fetch result image:`, fetchErr);
-              if (attempt < MAX_GENERATION_ATTEMPTS) { lastFailReason = "result_fetch_failed"; continue; }
-              throw new Error(`Sign ${signIndex + 1} could not be generated. Please try again.`);
-            }
+            // OpenAI returns raw base64 (PNG). No need to fetch from a URL.
+            const genB64 = b64Result;
+            const genMime = "image/png";
 
             lastGeneratedMime = genMime;
             lastGeneratedBase64 = genB64;
