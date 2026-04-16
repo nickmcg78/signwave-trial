@@ -141,10 +141,19 @@ export default function NewMockup() {
             ctx.drawImage(img, 0, 0)
 
             // Convert zone percentages to pixels
-            const x = (zone.xPct / 100) * canvas.width
-            const y = (zone.yPct / 100) * canvas.height
-            const w = (zone.wPct / 100) * canvas.width
-            const h = (zone.hPct / 100) * canvas.height
+            const rawX = (zone.xPct / 100) * canvas.width
+            const rawY = (zone.yPct / 100) * canvas.height
+            const rawW = (zone.wPct / 100) * canvas.width
+            const rawH = (zone.hPct / 100) * canvas.height
+
+            // Inset the marker by ~15% on each side so the sign doesn't fill
+            // the entire zone edge-to-edge. The franchisee sees the full box
+            // they drew, but the AI sees a tighter target with breathing room.
+            const INSET = 0.15
+            const x = rawX + rawW * INSET
+            const y = rawY + rawH * INSET
+            const w = rawW * (1 - INSET * 2)
+            const h = rawH * (1 - INSET * 2)
 
             // Draw semi-transparent cyan fill
             ctx.fillStyle = 'rgba(0, 255, 255, 0.25)'
@@ -496,35 +505,35 @@ const SIGN_TYPES: { id: string; name: string; description: string; defaultSpec: 
     name: 'Fascia Panel',
     description: 'Flat panel mounted flush to the building parapet or fascia band',
     defaultSpec:
-      'Flat aluminium composite panel (ACM) mounted flush to the existing fascia/parapet surface. Panel spans 80% of fascia width, centred horizontally. Background colour matches brand palette. Logo centred at 60% of panel width in contrasting colour. No cabinet depth — panel sits flat against the existing surface.',
+      'Flat aluminium composite panel (ACM), mounted flush to the surface with no visible cabinet depth. Background colour from the brand palette. Logo reproduced accurately in contrasting colour.',
   },
   {
     id: 'illuminated_dimensional_letters',
     name: 'Illuminated Dimensional Letters',
     description: 'Halo or front-lit letters mounted directly to the building surface',
     defaultSpec:
-      'Individual illuminated dimensional letters mounted directly to the existing fascia or parapet wall. Letters halo-lit or front-lit in brand colours. 300mm letter height, 40mm depth, stainless or painted aluminium construction. Even spacing, stud-mounted, casting natural shadow on wall behind.',
+      'Individual illuminated dimensional letters in brand colours, halo-lit or front-lit. Stainless or painted aluminium, 40mm depth, stud-mounted with even spacing. Each letter casts a natural shadow on the wall behind.',
   },
   {
     id: 'dimensional_letters',
     name: 'Dimensional Letters',
     description: 'Cut-out letters in metal or acrylic, mounted direct to wall',
     defaultSpec:
-      'Individual cut-out dimensional letters in brushed aluminium or painted finish, mounted flush to existing rendered or clad wall surface. 250mm letter height, 25mm depth. No backing panel — letters sit directly on the building surface with visible shadow.',
+      'Individual cut-out dimensional letters in brushed aluminium or painted finish, 25mm depth. No backing panel — letters sit directly on the wall surface with visible shadow.',
   },
   {
     id: 'lightbox',
     name: 'Lightbox / Illuminated Fascia',
     description: 'Slim backlit cabinet with printed acrylic face',
     defaultSpec:
-      'Slim-profile lightbox cabinet, 120mm deep, mounted within the existing fascia band. White acrylic face with full-colour printed graphic. Polished aluminium frame. Even internal LED illumination. Cabinet width 80% of fascia, centred horizontally.',
+      'Slim-profile lightbox cabinet, 120mm deep, polished aluminium frame. White acrylic face with full-colour printed graphic. Even internal LED illumination.',
   },
   {
     id: 'window_vinyl',
     name: 'Window Vinyl',
     description: 'Printed or frosted vinyl applied directly to glass',
     defaultSpec:
-      'Frosted white vinyl band across lower third of window glass. Logo reversed out in clear vinyl at centre. 200mm band height, full window width.',
+      'Frosted white vinyl with logo reversed out in clear vinyl, applied directly to the glass surface.',
   },
 ]
 
@@ -579,8 +588,10 @@ function StepType({ state, setState, signIndex }: StepProps) {
 }
 
 // The text prepended to the spec when "Replace existing sign" is selected.
+// Keep this short — the marker now defines position and size, so this line
+// only needs to tell the model to clear any old signage first.
 const REPLACE_PREFIX =
-  'Replace the existing sign on the fascia with a new [sign type]. Match the position, width, and mounting location of the existing sign exactly. Do not change the fascia dimensions or building structure.'
+  'Remove any existing signage underneath the marked area before installing the new [sign type]. Do not change the fascia dimensions or building structure.'
 
 function StepSpec({ state, setState, signIndex, onAddSign }: StepProps) {
   const sign = state.signs[signIndex]
