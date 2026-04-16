@@ -476,7 +476,7 @@ serve(async (req) => {
     const tagline = taglineValidation.valid ? taglineValidation.value : "";
 
     // body.size is accepted for backwards compatibility but ignored — sign
-    // size is now defined by the cyan marker drawn on the photo.
+    // size is now defined by the magenta marker drawn on the photo.
 
     const finishValidation = validateString(body.finish, "Finish", 50);
     const finish = finishValidation.valid ? finishValidation.value : "standard";
@@ -613,7 +613,7 @@ serve(async (req) => {
           matte: "Powder-coated, non-reflective surface that absorbs ambient light evenly.",
           standard: "Standard painted surface with subtle environmental light interaction.",
         };
-        // sizeDescriptions removed: the cyan marker now defines sign size.
+        // sizeDescriptions removed: the magenta marker now defines sign size.
         // Adding "mid-sized commercial sign, proportioned to the storefront
         // fascia" conflicted with the marker and was producing oversized signs.
 
@@ -623,7 +623,7 @@ serve(async (req) => {
         let currentShopMime = shopMime;
 
         // --- Sign placement: user-drawn zone via visible marker on photo ---
-        // The frontend burns a bright cyan rectangle onto the photo at the
+        // The frontend burns a bright magenta rectangle onto the photo at the
         // user-drawn zone. The model sees the marker and places the sign there,
         // then removes the marker. Mask-based inpainting is not used because
         // it's incompatible with image[] (used for logo reference).
@@ -652,10 +652,10 @@ serve(async (req) => {
 
           if (s.signPosition) { signSection += `Position: ${s.signPosition}\n`; }
 
-          // The building photo has a cyan rectangle burned onto it by the
+          // The building photo has a magenta rectangle burned onto it by the
           // frontend, marking exactly where the sign should be placed.
           if (s.signZone) {
-            signSection += `The photo has a bright cyan rectangle marking the exact sign location. Install the sign ONLY inside that marked area. Remove the cyan marker completely.\n`;
+            signSection += `The photo has a bright magenta rectangle marking the exact sign location. Install the sign ONLY inside that marked area. Remove the magenta marker completely.\n`;
             console.log(`[zone] Sign ${signIndex + 1} zone: x=${s.signZone.xPct.toFixed(1)}% y=${s.signZone.yPct.toFixed(1)}% w=${s.signZone.wPct.toFixed(1)}% h=${s.signZone.hPct.toFixed(1)}%`);
           }
 
@@ -667,7 +667,7 @@ ${sigwaveStyleGuide}`;
           if (s.contactDetails) { signPrompt += `\nContact details on sign: ${s.contactDetails}`; }
           if (logoBase64) { signPrompt += `\nThe second image is the brand logo. Reproduce it exactly on the sign with correct colours and layout.`; }
           signPrompt += `\nBlend sign edges naturally with the building surface — photorealistic, physically mounted, no digital overlay look.`;
-          signPrompt += `\nGenerate ONLY the described sign inside the cyan-outlined rectangle. Everything outside the cyan rectangle — walls, windows, other signs, awnings, surroundings — must remain pixel-for-pixel identical to the original photo. Do not modify, update, reinterpret, or improve any existing signage outside the marked area.`;
+          signPrompt += `\nGenerate ONLY the described sign inside the magenta-outlined rectangle. Everything outside the magenta rectangle — walls, windows, other signs, awnings, surroundings — must remain pixel-for-pixel identical to the original photo. Do not modify, update, reinterpret, or improve any existing signage outside the marked area.`;
 
           if (signIndex > 0) { signPrompt += `\nThe image already has ${signIndex} sign(s) — do not remove or modify them.`; }
 

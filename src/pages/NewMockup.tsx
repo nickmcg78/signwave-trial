@@ -122,7 +122,7 @@ export default function NewMockup() {
       ])
 
       // Burn a visible marker onto the building photo for each sign zone.
-      // We composite a bright cyan rectangle onto a copy of the photo so the
+      // We composite a bright magenta rectangle onto a copy of the photo so the
       // AI model can visually see where to place each sign.
       async function compositeMarker(
         photoDataUrl: string,
@@ -155,12 +155,12 @@ export default function NewMockup() {
             const w = rawW * (1 - INSET * 2)
             const h = rawH * (1 - INSET * 2)
 
-            // Draw semi-transparent cyan fill
-            ctx.fillStyle = 'rgba(0, 255, 255, 0.25)'
+            // Draw semi-transparent magenta fill
+            ctx.fillStyle = 'rgba(255, 0, 255, 0.25)'
             ctx.fillRect(x, y, w, h)
 
-            // Draw bright cyan border (thick enough for the model to see)
-            ctx.strokeStyle = 'rgba(0, 255, 255, 0.9)'
+            // Draw bright magenta border (thick enough for the model to see)
+            ctx.strokeStyle = 'rgba(255, 0, 255, 0.9)'
             ctx.lineWidth = Math.max(4, Math.round(canvas.width * 0.005))
             ctx.strokeRect(x, y, w, h)
 
