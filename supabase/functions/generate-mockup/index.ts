@@ -667,7 +667,7 @@ ${sigwaveStyleGuide}`;
           if (s.contactDetails) { signPrompt += `\nContact details on sign: ${s.contactDetails}`; }
           if (logoBase64) { signPrompt += `\nThe second image is the brand logo. Reproduce it exactly on the sign with correct colours and layout.`; }
           signPrompt += `\nBlend sign edges naturally with the building surface — photorealistic, physically mounted, no digital overlay look.`;
-          signPrompt += `\nGenerate ONLY the described sign in the marked area. Leave all other parts of the building unchanged.`;
+          signPrompt += `\nGenerate ONLY the described sign inside the cyan-outlined rectangle. Everything outside the cyan rectangle — walls, windows, other signs, awnings, surroundings — must remain pixel-for-pixel identical to the original photo. Do not modify, update, reinterpret, or improve any existing signage outside the marked area.`;
 
           if (signIndex > 0) { signPrompt += `\nThe image already has ${signIndex} sign(s) — do not remove or modify them.`; }
 
