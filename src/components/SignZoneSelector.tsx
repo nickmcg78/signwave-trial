@@ -69,12 +69,13 @@ export default function SignZoneSelector({ photoUrl, onZoneSelected, initialZone
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Semi-transparent blue fill
-    ctx.fillStyle = 'rgba(59, 130, 246, 0.25)'
+    // Semi-transparent magenta fill (matches the marker burned onto the
+    // photo before API submission, so the franchisee sees one colour end-to-end)
+    ctx.fillStyle = 'rgba(255, 0, 255, 0.25)'
     ctx.fillRect(x, y, w, h)
 
-    // Blue border
-    ctx.strokeStyle = 'rgba(59, 130, 246, 0.9)'
+    // Magenta border
+    ctx.strokeStyle = 'rgba(255, 0, 255, 0.9)'
     ctx.lineWidth = 2
     ctx.setLineDash([6, 3])
     ctx.strokeRect(x, y, w, h)
