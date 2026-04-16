@@ -475,8 +475,8 @@ serve(async (req) => {
     const taglineValidation = validateString(body.tagline, "Tagline", 200);
     const tagline = taglineValidation.valid ? taglineValidation.value : "";
 
-    const sizeValidation = validateString(body.size, "Size", 50);
-    const size = sizeValidation.valid ? sizeValidation.value : "medium";
+    // body.size is accepted for backwards compatibility but ignored — sign
+    // size is now defined by the cyan marker drawn on the photo.
 
     const finishValidation = validateString(body.finish, "Finish", 50);
     const finish = finishValidation.valid ? finishValidation.value : "standard";
@@ -613,11 +613,9 @@ serve(async (req) => {
           matte: "Powder-coated, non-reflective surface that absorbs ambient light evenly.",
           standard: "Standard painted surface with subtle environmental light interaction.",
         };
-        const sizeDescriptions: Record<string, string> = {
-          small: "Discrete plaque, approximately 600mm wide.",
-          medium: "Mid-sized commercial sign, proportioned to the storefront fascia.",
-          large: "Major architectural fascia sign spanning the available wall width.",
-        };
+        // sizeDescriptions removed: the cyan marker now defines sign size.
+        // Adding "mid-sized commercial sign, proportioned to the storefront
+        // fascia" conflicted with the marker and was producing oversized signs.
 
         const sigwaveStyleGuide = `Signwave Australia style: professionally installed exterior signage, physically convincing, not a digital overlay.`;
 
@@ -644,11 +642,9 @@ serve(async (req) => {
           let signSection = "";
 
           if (s.replaceExisting) {
-            signSection += s.existingSignDescription
-              ? `REPLACE existing sign ("${s.existingSignDescription}") — erase old graphics, install new sign in same position.\n`
-              : `REPLACE the most prominent existing signage — erase old graphics, install new sign in same position.\n`;
+            signSection += `Erase any existing sign graphics inside the marked area before installing the new sign.\n`;
           } else {
-            signSection += `ADD a new sign without removing existing signage.\n`;
+            signSection += `Install the new sign inside the marked area. Do not modify any existing signage elsewhere on the building.\n`;
           }
 
           const styleKey = Object.keys(styleDescriptions).includes(s.signType) ? s.signType : "fascia-panel";
@@ -670,7 +666,6 @@ ${sigwaveStyleGuide}`;
           if (tagline) { signPrompt += `\nTagline: "${tagline}".`; }
           if (s.contactDetails) { signPrompt += `\nContact details on sign: ${s.contactDetails}`; }
           if (logoBase64) { signPrompt += `\nThe second image is the brand logo. Reproduce it exactly on the sign with correct colours and layout.`; }
-          signPrompt += `\n${sizeDescriptions[size] || sizeDescriptions.medium}`;
           signPrompt += `\nBlend sign edges naturally with the building surface — photorealistic, physically mounted, no digital overlay look.`;
           signPrompt += `\nGenerate ONLY the described sign in the marked area. Leave all other parts of the building unchanged.`;
 
@@ -691,11 +686,11 @@ ${sigwaveStyleGuide}`;
 
             let attemptPrompt = signPrompt;
             if (attempt > 1) {
-              // Keep repair text minimal to stay under 1000 char dall-e-2 limit
+              // Keep repair text minimal
               attemptPrompt += ` Fix: preserve original framing.`;
             }
 
-            console.log(`[generate-mockup] Final prompt length: ${attemptPrompt.length} characters (limit: 1000)`);
+            console.log(`[generate-mockup] Final prompt length: ${attemptPrompt.length} characters`);
             const imageBytes = base64DecodeToBytes(currentShopBase64);
             const imageBlob = new Blob([imageBytes], { type: currentShopMime });
             const imageExt = currentShopMime === "image/png" ? "png" : "jpg";
@@ -763,8 +758,8 @@ ${sigwaveStyleGuide}`;
 
             let framingPass = true;
 
-            // Aspect ratio check removed — dall-e-2 always returns 1024x1024 square
-            // so landscape inputs will always mismatch. Accept any output dimensions.
+            // Aspect ratio check removed — the model returns a fixed 1024x1024
+            // square, so landscape inputs will always mismatch. Accept any output dimensions.
 
             if (LOVABLE_API_KEY) {
               try {
