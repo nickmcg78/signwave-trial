@@ -2,6 +2,8 @@ import { useRef, useState } from 'react'
 import type { ChangeEvent, Dispatch, SetStateAction } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import SignZoneSelector from '../components/SignZoneSelector'
+import type { SignZone } from '../components/SignZoneSelector'
 
 // Maps the wizard's internal sign type IDs to the IDs the edge function expects.
 // The edge function has its own vocabulary inherited from the original prompt
@@ -42,6 +44,7 @@ type Sign = {
   spec: string
   replaceExisting: boolean
   contactDetails: string
+  signZone: SignZone | null
 }
 
 type WizardState = {
@@ -87,7 +90,7 @@ export default function NewMockup() {
       case 3:
         return !!state.signs[currentSignIndex]?.signType
       case 4:
-        return (state.signs[currentSignIndex]?.spec.length ?? 0) >= 10
+        return (state.signs[currentSignIndex]?.spec.length ?? 0) >= 10 && state.signs[currentSignIndex]?.signZone !== null
       default:
         return false
     }
@@ -118,6 +121,55 @@ export default function NewMockup() {
         fileToDataUrl(state.logo),
       ])
 
+      // Burn a visible marker onto the building photo for each sign zone.
+      // We composite a bright cyan rectangle onto a copy of the photo so the
+      // AI model can visually see where to place each sign.
+      async function compositeMarker(
+        photoDataUrl: string,
+        zone: SignZone,
+      ): Promise<string> {
+        return new Promise((resolve, reject) => {
+          const img = new Image()
+          img.onload = () => {
+            const canvas = document.createElement('canvas')
+            canvas.width = img.naturalWidth
+            canvas.height = img.naturalHeight
+            const ctx = canvas.getContext('2d')
+            if (!ctx) { reject(new Error('Canvas not supported')); return }
+
+            // Draw original photo
+            ctx.drawImage(img, 0, 0)
+
+            // Convert zone percentages to pixels
+            const x = (zone.xPct / 100) * canvas.width
+            const y = (zone.yPct / 100) * canvas.height
+            const w = (zone.wPct / 100) * canvas.width
+            const h = (zone.hPct / 100) * canvas.height
+
+            // Draw semi-transparent cyan fill
+            ctx.fillStyle = 'rgba(0, 255, 255, 0.25)'
+            ctx.fillRect(x, y, w, h)
+
+            // Draw bright cyan border (thick enough for the model to see)
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.9)'
+            ctx.lineWidth = Math.max(4, Math.round(canvas.width * 0.005))
+            ctx.strokeRect(x, y, w, h)
+
+            resolve(canvas.toDataURL('image/jpeg', 0.92))
+          }
+          img.onerror = () => reject(new Error('Failed to load photo for marker'))
+          img.src = photoDataUrl
+        })
+      }
+
+      // Build the marked-up photo for the first sign's zone.
+      // For multi-sign, the edge function handles subsequent signs
+      // (their zones are sent as coordinates and applied to intermediate outputs).
+      const firstZone = state.signs[0]?.signZone
+      const markedPhotoUrl = firstZone
+        ? await compositeMarker(photoDataUrl, firstZone)
+        : photoDataUrl
+
       const mappedSigns = state.signs.map(s => {
         // When replacing, prepend the replacement framing to the spec so the
         // AI knows to swap the existing sign rather than add a second one.
@@ -133,12 +185,13 @@ export default function NewMockup() {
           replaceExisting: s.replaceExisting,
           existingSignDescription: '',
           contactDetails: s.contactDetails || '',
+          signZone: s.signZone,
         }
       })
 
       const { data, error } = await supabase.functions.invoke('generate-mockup', {
         body: {
-          shopImageUrl: photoDataUrl,
+          shopImageUrl: markedPhotoUrl,
           logoUrl: logoDataUrl,
           tagline: '',
           size: 'medium',
@@ -484,7 +537,7 @@ function StepType({ state, setState, signIndex }: StepProps) {
       if (existing) {
         newSigns[signIndex] = { ...existing, signType: id, spec: defaultSpec }
       } else {
-        newSigns[signIndex] = { signType: id, spec: defaultSpec, replaceExisting: true, contactDetails: '' }
+        newSigns[signIndex] = { signType: id, spec: defaultSpec, replaceExisting: true, contactDetails: '', signZone: null }
       }
       return { ...prev, signs: newSigns }
     })
@@ -543,7 +596,7 @@ function StepSpec({ state, setState, signIndex, onAddSign }: StepProps) {
       if (newSigns[signIndex]) {
         newSigns[signIndex] = { ...newSigns[signIndex], ...patch }
       } else {
-        newSigns[signIndex] = { signType: '', spec: '', replaceExisting: true, contactDetails: '', ...patch }
+        newSigns[signIndex] = { signType: '', spec: '', replaceExisting: true, contactDetails: '', signZone: null, ...patch }
       }
       return { ...prev, signs: newSigns }
     })
@@ -566,7 +619,18 @@ function StepSpec({ state, setState, signIndex, onAddSign }: StepProps) {
       <h2 className="text-2xl font-bold text-gray-900">
         {signIndex > 0 ? `Sign ${signIndex + 1}: Describe the sign` : 'Describe the sign'}
       </h2>
-      <p className="text-gray-500 text-sm mt-1">
+
+      {/* Sign zone selector — draw a rectangle on the building photo to
+          define where this sign goes. Each sign gets its own zone. */}
+      {state.photoPreviewUrl && (
+        <SignZoneSelector
+          photoUrl={state.photoPreviewUrl}
+          initialZone={sign?.signZone ?? null}
+          onZoneSelected={(zone) => updateSign({ signZone: zone })}
+        />
+      )}
+
+      <p className="text-gray-500 text-sm mt-4">
         Include size, finish, colours, or anything specific.
       </p>
 

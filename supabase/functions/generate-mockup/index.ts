@@ -309,26 +309,27 @@ async function generateMaskPNG(
 ): Promise<Uint8Array> {
   const rowLen = 1 + width * 4; // filter byte + RGBA
 
-  // Pre-build two row templates instead of per-pixel branching
-  const opaqueRow = new Uint8Array(rowLen); // all opaque black
-  opaqueRow[0] = 0; // PNG filter: None
-  for (let x = 0; x < width; x++) opaqueRow[1 + x * 4 + 3] = 255;
+  // Pre-build two row templates instead of per-pixel branching.
+  // OpenAI convention: transparent (alpha=0) = area to edit,
+  //                    opaque (alpha=255)    = area to preserve.
+  const preserveRow = new Uint8Array(rowLen); // fully opaque — OpenAI won't touch these pixels
+  preserveRow[0] = 0; // PNG filter: None
+  for (let x = 0; x < width; x++) preserveRow[1 + x * 4 + 3] = 255;
 
-  const zoneRow = new Uint8Array(rowLen); // white in fascia zone (fal.ai: white=inpaint)
+  const zoneRow = new Uint8Array(rowLen); // transparent in edit zone, opaque outside
   zoneRow[0] = 0;
   for (let x = 0; x < width; x++) {
     if (x >= leftPx && x < rightPx) {
-      zoneRow[1 + x * 4] = 255;     // R
-      zoneRow[1 + x * 4 + 1] = 255; // G
-      zoneRow[1 + x * 4 + 2] = 255; // B
+      // Alpha stays 0 (transparent) — OpenAI will edit here
+    } else {
+      zoneRow[1 + x * 4 + 3] = 255; // opaque — preserve
     }
-    zoneRow[1 + x * 4 + 3] = 255;   // A (always opaque)
   }
 
   // Assemble raw scanlines
   const raw = new Uint8Array(height * rowLen);
   for (let y = 0; y < height; y++) {
-    raw.set((y >= topPx && y < bottomPx) ? zoneRow : opaqueRow, y * rowLen);
+    raw.set((y >= topPx && y < bottomPx) ? zoneRow : preserveRow, y * rowLen);
   }
 
   // Compress with zlib (CompressionStream 'deflate' produces RFC 1950 zlib format)
@@ -486,8 +487,20 @@ serve(async (req) => {
     const timeOfDayValidation = validateString(body.timeOfDay, "Time of day", 20);
     const timeOfDay = timeOfDayValidation.valid ? timeOfDayValidation.value : "day";
 
-    interface SignInput { signType: string; signPosition: string; replaceExisting: boolean; existingSignDescription: string; contactDetails: string; }
+    interface SignZoneInput { xPct: number; yPct: number; wPct: number; hPct: number; }
+    interface SignInput { signType: string; signPosition: string; replaceExisting: boolean; existingSignDescription: string; contactDetails: string; signZone: SignZoneInput | null; }
     let signs: SignInput[] = [];
+
+    function parseSignZone(sz: unknown): SignZoneInput | null {
+      if (!sz || typeof sz !== "object") return null;
+      const o = sz as Record<string, unknown>;
+      const xPct = Number(o.xPct); const yPct = Number(o.yPct);
+      const wPct = Number(o.wPct); const hPct = Number(o.hPct);
+      if ([xPct, yPct, wPct, hPct].every(v => Number.isFinite(v) && v >= 0 && v <= 100) && wPct > 0 && hPct > 0) {
+        return { xPct, yPct, wPct, hPct };
+      }
+      return null;
+    }
 
     if (Array.isArray(body.signs) && body.signs.length > 0) {
       for (const s of body.signs) {
@@ -496,7 +509,9 @@ serve(async (req) => {
         const spv = validateString(s.signPosition, "Sign position", 2000);
         const esdv = validateString(s.existingSignDescription, "Existing sign description", 300);
         const cdv = validateString(s.contactDetails, "Contact details", 200);
-        signs.push({ signType: stv.value, signPosition: spv.valid ? spv.value : "", replaceExisting: s.replaceExisting === true, existingSignDescription: esdv.valid ? esdv.value : "", contactDetails: cdv.valid ? cdv.value : "" });
+        const zone = parseSignZone(s.signZone);
+        if (zone) console.log(`[zone] Sign zone: x=${zone.xPct.toFixed(1)}% y=${zone.yPct.toFixed(1)}% w=${zone.wPct.toFixed(1)}% h=${zone.hPct.toFixed(1)}%`);
+        signs.push({ signType: stv.value, signPosition: spv.valid ? spv.value : "", replaceExisting: s.replaceExisting === true, existingSignDescription: esdv.valid ? esdv.value : "", contactDetails: cdv.valid ? cdv.value : "", signZone: zone });
       }
     } else {
       const signTypeValidation = validateString(body.signType, "Sign type", 100, true);
@@ -504,7 +519,7 @@ serve(async (req) => {
       const signPositionValidation = validateString(body.signPosition, "Sign position", 2000);
       const existingSignDescValidation = validateString(body.existingSignDescription, "Existing sign description", 300);
       const contactDetailsValidation = validateString(body.contactDetails, "Contact details", 200);
-      signs.push({ signType: signTypeValidation.value, signPosition: signPositionValidation.valid ? signPositionValidation.value : "", replaceExisting: body.replaceExisting === true, existingSignDescription: existingSignDescValidation.valid ? existingSignDescValidation.value : "", contactDetails: contactDetailsValidation.valid ? contactDetailsValidation.value : "" });
+      signs.push({ signType: signTypeValidation.value, signPosition: signPositionValidation.valid ? signPositionValidation.value : "", replaceExisting: body.replaceExisting === true, existingSignDescription: existingSignDescValidation.valid ? existingSignDescValidation.value : "", contactDetails: contactDetailsValidation.valid ? contactDetailsValidation.value : "", signZone: null });
     }
 
     console.log(`[generate-mockup] ${signs.length} sign(s) requested`);
@@ -586,11 +601,11 @@ serve(async (req) => {
         }
 
         const styleDescriptions: Record<string, string> = {
-          "window-perf": "One-Way Vision vinyl (perforated window film) applied directly onto the glass surface. The graphic is SEMI-TRANSPARENT — the shop interior must remain partially visible through the vinyl. This is NOT a solid panel or physical sign. Zero depth, zero standoff. The glass surface and window frame remain unchanged.",
-          "blade-sign": "This sign PROJECTS OUTWARD from the building wall at 90 degrees, perpendicular to the facade, hanging from a metal bracket arm.",
-          "3d-letters": "Individual dimensional CHANNEL LETTERS mounted to the wall with stand-off pins. Each letter casts its own shadow.",
-          lightbox: "Illuminated LIGHTBOX CABINET sign — enclosed, backlit panel with 3-inch aluminium frame depth.",
-          "fascia-panel": "FASCIA-MOUNTED flat panel sign applied directly to the building's header/fascia board.",
+          "window-perf": "One-Way Vision perforated vinyl on glass, semi-transparent, shop interior visible through it. Not a solid sign.",
+          "blade-sign": "Blade sign projecting outward from wall at 90 degrees, hanging from a bracket arm.",
+          "3d-letters": "Dimensional channel letters mounted to wall with stand-off pins, each casting its own shadow.",
+          lightbox: "Illuminated lightbox cabinet sign, enclosed backlit panel with aluminium frame.",
+          "fascia-panel": "Flat panel sign applied directly to the building's fascia board.",
         };
         const finishDescriptions: Record<string, string> = {
           gloss: "High-sheen acrylic face with sharp, mirror-like environmental reflections.",
@@ -604,67 +619,16 @@ serve(async (req) => {
           large: "Major architectural fascia sign spanning the available wall width.",
         };
 
-        const sigwaveStyleGuide = `
-SIGNWAVE INSTALLATION STYLE (CRITICAL):
-You are producing a visualisation in the style of Signwave Australia — a professional sign franchise known for:
-• Clean, high-contrast, professionally executed exterior signage
-• Strong dimensional lettering on facades as a signature style
-• Bold, graphic window vinyl treatments (not subtle)
-• Illuminated fascia signs with polished aluminium surrounds
-• Australian strip-shopping and commercial retail context
-• Signs that look physically manufactured and installed — not digital overlays
-Every sign must look like it was fabricated by a professional sign company and physically installed on the building.
-
-PHYSICAL REALISM (CRITICAL — DO NOT IGNORE):
-The sign must appear physically manufactured and installed — not digitally composited or overlaid.
-Every generated sign must have ALL of the following:
-• The sign casts a natural shadow on the wall surface behind it, consistent with the ambient light direction in the photograph
-• Mounting hardware is visible — screw fixings, standoffs, or aluminium extrusion edges at the perimeter of the sign
-• The sign surface has appropriate material texture — brushed aluminium, matte acrylic, painted steel — not a flat graphic
-• The perspective and foreshortening of the sign exactly matches the camera angle and lens distortion of the original photograph
-• The sign sits flush against the building surface or within a recessed channel — it does not float, hover, or appear pasted on
-• Lighting on the sign face is consistent with the light source and time of day visible in the photograph
-
-PLACEMENT CONSTRAINTS (CRITICAL):
-• Fascia signs within the existing fascia band ONLY — do not create, manufacture, or invent any new fascia panel, lightbox cabinet, sign surround, or architectural structure that does not physically exist in the original photograph
-• The fascia material, colour, depth, and profile must remain identical to the original — only the surface graphics change
-• Signs must NEVER overlap windows, glazing, roller doors, garage doors, or any architectural opening
-• Signs must NEVER overlap structural columns, pillars, or downpipes
-• Scale sign DOWN to fit — never expand fascia height or width
-• Place exactly ONE sign per instruction — no duplicates on secondary walls or upper floors`;
+        const sigwaveStyleGuide = `Signwave Australia style: professionally installed exterior signage, physically convincing, not a digital overlay.`;
 
         let currentShopBase64 = shopImageBase64;
         let currentShopMime = shopMime;
 
-        // --- Detect fascia zone for masking (optional for Flux Kontext Lora Inpaint) ---
-        let fasciaZone: FasciaZone;
-        if (GEMINI_API_KEY) {
-          await supabaseAdmin.from("mockup_jobs").update({ progress: "Detecting fascia zone...", updated_at: new Date().toISOString() }).eq("id", jobId);
-          const detected = await detectFasciaZone(shopImageBase64, shopMime, GEMINI_API_KEY);
-          if (detected && detected.confidence !== "low") {
-            console.log(`[mask] Gemini detected fascia zone: top=${detected.topPercent}% bottom=${detected.bottomPercent}% left=${detected.leftPercent}% right=${detected.rightPercent}% confidence=${detected.confidence}`);
-            // Add 5% padding in each direction for breathing room
-            fasciaZone = {
-              topPercent: Math.max(0, detected.topPercent - 5),
-              bottomPercent: Math.min(100, detected.bottomPercent + 5),
-              leftPercent: Math.max(0, detected.leftPercent - 5),
-              rightPercent: Math.min(100, detected.rightPercent + 5),
-              confidence: detected.confidence,
-              notes: detected.notes,
-            };
-            // Cap mask height to prevent over-masking (max 20% of image height)
-            if (fasciaZone.bottomPercent - fasciaZone.topPercent > 20) {
-              console.warn(`[mask] Capping mask height from ${(fasciaZone.bottomPercent - fasciaZone.topPercent).toFixed(1)}% to 20%`);
-              fasciaZone.bottomPercent = fasciaZone.topPercent + 20;
-            }
-          } else {
-            console.warn("[mask] Gemini detection failed, using default top-band mask");
-            fasciaZone = { ...DEFAULT_FASCIA_ZONE };
-          }
-        } else {
-          console.log("[mask] No GEMINI_API_KEY, using default top-band mask");
-          fasciaZone = { ...DEFAULT_FASCIA_ZONE };
-        }
+        // --- Sign placement: user-drawn zone via visible marker on photo ---
+        // The frontend burns a bright cyan rectangle onto the photo at the
+        // user-drawn zone. The model sees the marker and places the sign there,
+        // then removes the marker. Mask-based inpainting is not used because
+        // it's incompatible with image[] (used for logo reference).
 
         for (let signIndex = 0; signIndex < signs.length; signIndex++) {
           const s = signs[signIndex];
@@ -677,19 +641,14 @@ PLACEMENT CONSTRAINTS (CRITICAL):
           const iterAR = iterDims ? aspectRatio(iterDims.width, iterDims.height) : null;
           console.log(`[generate-mockup] ${signLabel} input: ${iterDims?.width}x${iterDims?.height}, AR=${iterAR?.toFixed(4)}`);
 
-          const iterDimConstraint = iterDims
-            ? `\nSOURCE IMAGE DIMENSIONS: ${iterDims.width}×${iterDims.height} pixels (aspect ratio ${iterAR!.toFixed(4)}). Output MUST match these exact dimensions and aspect ratio.`
-            : "";
-
           let signSection = "";
 
           if (s.replaceExisting) {
-            const sizingConstraint = `• SIZING CONSTRAINT (CRITICAL):\n  – The new sign MUST fit WITHIN the existing physical fascia band/structure dimensions.\n  – Do NOT enlarge, extend, or reshape any architectural element to accommodate the sign.\n  – The fascia height, width, and position must remain IDENTICAL to the original photograph.\n  – If the logo does not fit at full size, SCALE IT DOWN until it fits within the existing fascia boundary.\n  – Do NOT cover, obscure, or overlap any windows, doors, awnings, or other architectural features.\n  – The sign must sit entirely within the fascia band — never extend above, below, or beyond it.\n  – The building is IMMUTABLE — only the sign artwork changes, never the structure.\n`;
             signSection += s.existingSignDescription
-              ? `SIGN REPLACEMENT DIRECTIVE:\n• LOCATE: Find the existing sign described as: "${s.existingSignDescription}".\n• ERASE: Paint over with the wall/surface texture behind it.\n• INSTALL: Place the NEW sign centered on the same position.\n${sizingConstraint}`
-              : `SIGN REPLACEMENT DIRECTIVE:\n• LOCATE: Identify the most prominent existing signage.\n• ERASE: Paint over completely.\n• INSTALL: Place the NEW sign centered on the same position.\n${sizingConstraint}`;
+              ? `REPLACE existing sign ("${s.existingSignDescription}") — erase old graphics, install new sign in same position.\n`
+              : `REPLACE the most prominent existing signage — erase old graphics, install new sign in same position.\n`;
           } else {
-            signSection += `SIGN ADDITION DIRECTIVE:\n• Add the new sign at the specified position. Do NOT remove or modify any existing signage.\n`;
+            signSection += `ADD a new sign without removing existing signage.\n`;
           }
 
           const styleKey = Object.keys(styleDescriptions).includes(s.signType) ? s.signType : "fascia-panel";
@@ -697,75 +656,27 @@ PLACEMENT CONSTRAINTS (CRITICAL):
 
           if (s.signPosition) { signSection += `Position: ${s.signPosition}\n`; }
 
-          let signPrompt = `PERSONA: You are a professional sign production engineer with expertise in architectural visualisation. Edit the uploaded shopfront photograph to add signage featuring the provided brand logo, so it looks like a physical, high-end installation integrated seamlessly into the storefront.
-${sigwaveStyleGuide}
-
-BASE-PLATE LOCK (ABSOLUTE RULE):
-• The source photograph is an IMMUTABLE BASE PLATE.
-• Copy the original scene EDGE-TO-EDGE first, pixel-for-pixel.
-• Then edit ONLY the sign pixels on top of the copied base plate.
-• If the composition, framing, zoom, or field of view changes AT ALL — the output is INVALID.
-• Every element visible at the edges of the source must remain in the same position.
-${iterDimConstraint}
-
-TEXT FIDELITY (CRITICAL): Logo text must be perfectly sharp, correctly oriented, and fully legible. No pixel-bleeding or melting artefacts.
-
-THE ZERO-ZOOM LOCK (MANDATORY):
-• Output MUST show the ENTIRE original photograph — every pixel from edge to edge.
-• Do NOT zoom in, crop, pan, or reframe under ANY circumstances.
-
-SINGLE-PLACEMENT LOCK (CRITICAL):
-• Place the sign in EXACTLY ONE location on the building — the primary ground-floor fascia.
-• Do NOT duplicate, repeat, or echo the sign on any other surface.
-• Do NOT place any signage on upper floors, secondary walls, side walls, awnings, or rooflines.
-• ONE sign, ONE location, ONE fascia — no exceptions.
-
-${signSection}`;
-
-          if (tagline) { signPrompt += `\nTagline: Include the tagline "${tagline}" as part of the signage display.`; }
-          if (s.contactDetails) { signPrompt += `\nCONTACT DETAILS: Include the following contact details on the sign: ${s.contactDetails}`; }
-          if (logoBase64) { signPrompt += `\nLOGO: Reproduce the client's brand logo accurately on the sign — correct colours, correct proportions, legible text.`; }
-
-          signPrompt += `\nPhysical Specifications: ${sizeDescriptions[size] || sizeDescriptions.medium} ${finishDescriptions[finish] || finishDescriptions.standard}`;
-
-          if (illumination === "illuminated" && timeOfDay === "day") {
-            signPrompt += `\nLighting: Internally lit but no visible bloom in daylight. Reduce luminance by 15-20%.`;
-          } else if (illumination === "illuminated" && timeOfDay === "night") {
-            signPrompt += `\nLighting: Sign is a light source. Render realistic LED illumination casting a colour wash.`;
-          } else if (timeOfDay === "day") {
-            signPrompt += `\nLighting: No internal lighting, lit by scene's natural light. Reduce luminance by 15-20%.`;
-          } else {
-            signPrompt += `\nLighting: No internal lighting. Time of Day: ${timeOfDay}.`;
+          // The building photo has a cyan rectangle burned onto it by the
+          // frontend, marking exactly where the sign should be placed.
+          if (s.signZone) {
+            signSection += `The photo has a bright cyan rectangle marking the exact sign location. Install the sign ONLY inside that marked area. Remove the cyan marker completely.\n`;
+            console.log(`[zone] Sign ${signIndex + 1} zone: x=${s.signZone.xPct.toFixed(1)}% y=${s.signZone.yPct.toFixed(1)}% w=${s.signZone.wPct.toFixed(1)}% h=${s.signZone.hPct.toFixed(1)}%`);
           }
 
-          signPrompt += `
-RENDERING QUALITY: Match resolution, grain, and lighting of the background photo. Render consistent shadow direction, colour temperature, and surface material reflections.
-AMBIENT OCCLUSION: Render soft contact shadows at mounting points. Use shadow colour temperature from the photo — never pure black.
-BLACK LEVEL MATCHING: All dark tones must match the original photograph's black levels. Do NOT use pure #000000.
+          let signPrompt = `Edit the uploaded shopfront photo to install signage with the provided brand logo.
+${signSection}
+${sigwaveStyleGuide}`;
 
-STRICT OUTPUT CONSTRAINT: Generate ONLY the single sign described in the specification above. Do NOT add any additional signage, window graphics, vinyl decals, diagonal stripes, brand patterns, or any other visual elements anywhere else on the building. Every part of the building not covered by the specified sign must remain exactly as it appears in the original photograph.
+          if (tagline) { signPrompt += `\nTagline: "${tagline}".`; }
+          if (s.contactDetails) { signPrompt += `\nContact details on sign: ${s.contactDetails}`; }
+          if (logoBase64) { signPrompt += `\nThe second image is the brand logo. Reproduce it exactly on the sign with correct colours and layout.`; }
+          signPrompt += `\n${sizeDescriptions[size] || sizeDescriptions.medium}`;
+          signPrompt += `\nBlend sign edges naturally with the building surface — photorealistic, physically mounted, no digital overlay look.`;
+          signPrompt += `\nGenerate ONLY the described sign in the marked area. Leave all other parts of the building unchanged.`;
 
-FINAL STRUCTURAL CHECK: The building architecture in this output must be identical to the input photograph. Any new box, panel, cabinet, cladding, or frame that was not present in the original photo is a generation failure. The sign sits ON the existing surface — it does not replace the surface.`;
+          if (signIndex > 0) { signPrompt += `\nThe image already has ${signIndex} sign(s) — do not remove or modify them.`; }
 
-          if (signIndex > 0) { signPrompt += `\n\nPREVIOUS SIGNS: The input image already contains ${signIndex} previously rendered sign(s). Do NOT remove, modify, or obscure them. Only add the new sign described above.`; }
-
-          // Generate mask PNG for this sign (optional for inpainting)
-          let maskBase64: string | null = null;
-          if (iterDims) {
-            const topPx = Math.round((fasciaZone.topPercent / 100) * iterDims.height);
-            const bottomPx = Math.round((fasciaZone.bottomPercent / 100) * iterDims.height);
-            const leftPx = Math.round((fasciaZone.leftPercent / 100) * iterDims.width);
-            const rightPx = Math.round((fasciaZone.rightPercent / 100) * iterDims.width);
-            try {
-              const maskPng = await generateMaskPNG(iterDims.width, iterDims.height, topPx, bottomPx, leftPx, rightPx);
-              maskBase64 = arrayBufferToBase64(maskPng.buffer);
-              console.log(`[mask] Generated mask PNG: ${iterDims.width}x${iterDims.height}, white zone y=${topPx}px–${bottomPx}px x=${leftPx}px–${rightPx}px`);
-            } catch (maskErr) {
-              console.warn("[mask] Failed to generate mask PNG, continuing without mask:", maskErr);
-            }
-          } else {
-            console.warn("[mask] Could not determine image dimensions, skipping mask");
-          }
+          console.log(`[generate-mockup] Prompt length: ${signPrompt.length} characters`);
 
           let lastGeneratedBase64: string | null = null;
           let lastGeneratedMime: string = "image/png";
@@ -780,33 +691,31 @@ FINAL STRUCTURAL CHECK: The building architecture in this output must be identic
 
             let attemptPrompt = signPrompt;
             if (attempt > 1) {
-              const edgeInfo = lastVisionResult ? ` Edge failures: top=${!lastVisionResult.topEdgeMatch}, bottom=${!lastVisionResult.bottomEdgeMatch}, left=${!lastVisionResult.leftEdgeMatch}, right=${!lastVisionResult.rightEdgeMatch}.` : "";
-              const repairDirective = buildEdgeRepairDirective(lastVisionResult);
-              const isFinalAttempt = attempt === MAX_GENERATION_ATTEMPTS;
-              attemptPrompt += `\n\n⚠️ REPAIR MODE (attempt ${attempt}): Previous generation FAILED framing integrity (${lastFailReason}).${edgeInfo}${repairDirective}${isFinalAttempt ? " FINAL ATTEMPT: absolute edge-lock required." : ""}`;
+              // Keep repair text minimal to stay under 1000 char dall-e-2 limit
+              attemptPrompt += ` Fix: preserve original framing.`;
             }
 
-            // Build OpenAI gpt-image-1 /v1/images/edits multipart request.
-            // The API expects the image as a file upload (Blob), NOT a data URL,
-            // so we decode the base64 into binary and wrap it in a Blob.
+            console.log(`[generate-mockup] Final prompt length: ${attemptPrompt.length} characters (limit: 1000)`);
             const imageBytes = base64DecodeToBytes(currentShopBase64);
             const imageBlob = new Blob([imageBytes], { type: currentShopMime });
             const imageExt = currentShopMime === "image/png" ? "png" : "jpg";
 
             const formData = new FormData();
-            formData.append("model", "dall-e-2");
-            formData.append("image", imageBlob, `building.${imageExt}`);
+            formData.append("model", "gpt-image-1");
             formData.append("prompt", attemptPrompt);
             formData.append("size", "1024x1024");
-            formData.append("response_format", "b64_json");
+            // gpt-image-1 returns b64_json by default — no response_format parameter needed
 
-            if (maskBase64) {
-              const maskBytes = base64DecodeToBytes(maskBase64);
-              const maskBlob = new Blob([maskBytes], { type: "image/png" });
-              formData.append("mask", maskBlob, "mask.png");
-            }
+            // Two images: building photo + logo reference.
+            // OpenAI requires image[] array syntax for multiple images.
+            formData.append("image[]", imageBlob, `building.${imageExt}`);
+            const logoBytes = base64DecodeToBytes(logoBase64!);
+            const logoBlob = new Blob([logoBytes], { type: logoMime });
+            const logoExt = logoMime.includes("png") ? "png" : "jpg";
+            formData.append("image[]", logoBlob, `logo.${logoExt}`);
+            console.log(`[generate-mockup] Logo appended (${logoMime}, ${logoBytes.length} bytes)`);
 
-            console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: OpenAI dall-e-2 /v1/images/edits, mask=${!!maskBase64}, logo=${!!logoBase64}, AR=${iterAR?.toFixed(4)}`);
+            console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: OpenAI /v1/images/edits, logo=${!!logoBase64}, signZone=${!!s.signZone}, AR=${iterAR?.toFixed(4)}`);
 
             const response = await fetch("https://api.openai.com/v1/images/edits", {
               method: "POST",
@@ -854,14 +763,8 @@ FINAL STRUCTURAL CHECK: The building architecture in this output must be identic
 
             let framingPass = true;
 
-            if (iterAR && genAR) {
-              const arResult = aspectRatiosMatch(iterAR, genAR);
-              if (!arResult.match) {
-                console.warn(`[generate-mockup] ${signLabel} Attempt ${attempt}: FAILED aspect ratio. Delta=${(arResult.delta * 100).toFixed(2)}%`);
-                framingPass = false;
-                lastFailReason = `aspect_ratio_mismatch_${(arResult.delta * 100).toFixed(2)}pct`;
-              }
-            }
+            // Aspect ratio check removed — dall-e-2 always returns 1024x1024 square
+            // so landscape inputs will always mismatch. Accept any output dimensions.
 
             if (LOVABLE_API_KEY) {
               try {
