@@ -607,6 +607,12 @@ serve(async (req) => {
           lightbox: "Illuminated lightbox cabinet sign, enclosed backlit panel with aluminium frame.",
           "fascia-panel": "Flat panel sign applied directly to the building's fascia board.",
         };
+        const referenceImageUrls: Record<string, string> = {
+          "fascia-panel": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/reference-images/fascia-panel.jpg",
+          "3d-letters": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/reference-images/dimensional-letters.jpg",
+          "lightbox": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/reference-images/lightbox.jpg",
+          "window-perf": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/reference-images/window-vinyl.jpg",
+        };
         const finishDescriptions: Record<string, string> = {
           gloss: "High-sheen acrylic face with sharp, mirror-like environmental reflections.",
           metallic: "Brushed aluminium frame with anisotropic highlights and visible 50mm depth.",
@@ -666,6 +672,8 @@ ${sigwaveStyleGuide}`;
           if (tagline) { signPrompt += `\nTagline: "${tagline}".`; }
           if (s.contactDetails) { signPrompt += `\nContact details on sign: ${s.contactDetails}`; }
           if (logoBase64) { signPrompt += `\nThe second image is the brand logo. Reproduce it exactly on the sign with correct colours and layout.`; }
+          const referenceUrl = referenceImageUrls[s.signType];
+          if (referenceUrl) { signPrompt += `\nMatch the installation quality and physical realism of the reference sign image.`; }
           signPrompt += `\nBlend sign edges naturally with the building surface — photorealistic, physically mounted, no digital overlay look.`;
           signPrompt += `\nGenerate ONLY the described sign inside the magenta-outlined rectangle. Everything outside the magenta rectangle — walls, windows, other signs, awnings, surroundings — must remain pixel-for-pixel identical to the original photo. Do not modify, update, reinterpret, or improve any existing signage outside the marked area.`;
 
@@ -709,6 +717,19 @@ ${sigwaveStyleGuide}`;
             const logoExt = logoMime.includes("png") ? "png" : "jpg";
             formData.append("image[]", logoBlob, `logo.${logoExt}`);
             console.log(`[generate-mockup] Logo appended (${logoMime}, ${logoBytes.length} bytes)`);
+
+            if (referenceUrl) {
+              try {
+                const { base64: refBase64, mime: refMime } = await fetchImageAsBase64(referenceUrl);
+                const refBytes = base64DecodeToBytes(refBase64);
+                const refBlob = new Blob([refBytes], { type: refMime });
+                const refExt = refMime.includes("png") ? "png" : "jpg";
+                formData.append("image[]", refBlob, `reference.${refExt}`);
+                console.log(`[generate-mockup] Reference image appended for ${s.signType} (${refMime}, ${refBytes.length} bytes)`);
+              } catch (refErr) {
+                console.warn(`[generate-mockup] Reference image fetch failed for ${s.signType}, continuing without it:`, refErr);
+              }
+            }
 
             console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: OpenAI /v1/images/edits, logo=${!!logoBase64}, signZone=${!!s.signZone}, AR=${iterAR?.toFixed(4)}`);
 

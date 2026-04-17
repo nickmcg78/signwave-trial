@@ -138,5 +138,29 @@
     "description": "Wide industrial — multi-sign: fascia + dimensional letters",
     "sign_type": "fascia-panel",
     "spec": "White aluminium fascia panel full width above roller door zone, business name and logo centred, dark text — this is Sign 1 of a multi-sign test"
+  },
+  {
+    "id": "TC21",
+    "building": "building_7.png",
+    "logo": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/test-logos/01-hipages.png",
+    "description": "Vacant wide shop — fascia panel with hipages logo",
+    "sign_type": "fascia-panel",
+    "spec": "White aluminium fascia panel, full width, hipages logo and wordmark centred, dark text on white, clean professional finish, generous spacing"
+  },
+  {
+    "id": "TC22",
+    "building": "building_5.png",
+    "logo": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/test-logos/05-zambrero-hospitality.png",
+    "description": "Corner café — illuminated lightbox with Zambrero logo",
+    "sign_type": "lightbox",
+    "spec": "Replace existing fascia with illuminated lightbox on primary face, white acrylic face, Zambrero logo and wordmark backlit, slim aluminium frame, warm white illumination"
+  },
+  {
+    "id": "TC23",
+    "building": "building_8.png",
+    "logo": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/test-logos/08-airwallex.png",
+    "description": "Brick building with columns — dimensional letters with Airwallex logo",
+    "sign_type": "3d-letters",
+    "spec": "Individual 3D acrylic letters, 200mm height, gloss white, mounted to cream rendered fascia band above entrance columns, Airwallex wordmark only, clean sans-serif"
   }
 ]

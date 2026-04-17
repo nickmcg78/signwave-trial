@@ -129,8 +129,8 @@ async function main() {
     console.log(`\nLoaded ${testCases.length} test cases\n`);
   }
 
-  // --- Load logo once (reused for every test) ---
-  const logoBase64 = toBase64DataUri(LOGO_PATH);
+  // --- Load default logo once (used when a test case has no per-case logo) ---
+  const defaultLogoBase64 = toBase64DataUri(LOGO_PATH);
 
   // --- Authenticate with Supabase ---
   console.log(`Signing in as ${TEST_EMAIL}...`);
@@ -172,10 +172,16 @@ async function main() {
 
       console.log(`${tag} shopImage base64 preview: ${shopBase64.substring(0, 50)}...`);
 
+      // Per-case logo override (Supabase URL or any other string accepted by
+      // the edge function's validateImageUrl) — falls back to the default
+      // local Signwave logo when the test case doesn't specify one.
+      const logoForCase = tc.logo || defaultLogoBase64;
+      if (tc.logo) console.log(`${tag} Using per-case logo: ${tc.logo}`);
+
       // POST to edge function
       const payload = {
         shopImageUrl: shopBase64,
-        logoUrl: logoBase64,
+        logoUrl: logoForCase,
         signs: [
           {
             signType: signType,
