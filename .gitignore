@@ -30,3 +30,6 @@ test_results.csv
 
 # Claude Code local settings
 .claude/
+
+# Supabase CLI local state (auto-generated on every CLI invocation)
+supabase/.temp/
