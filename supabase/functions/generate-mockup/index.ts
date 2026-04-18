@@ -671,7 +671,7 @@ ${sigwaveStyleGuide}`;
 
           if (tagline) { signPrompt += `\nTagline: "${tagline}".`; }
           if (s.contactDetails) { signPrompt += `\nContact details on sign: ${s.contactDetails}`; }
-          if (logoBase64) { signPrompt += `\nThe second image is the brand logo. Reproduce it exactly on the sign with correct colours and layout.`; }
+          if (logoBase64) { signPrompt += `\nThe second image is the brand logo. Reproduce it exactly on the sign with correct colours and layout. Preserve the logo's original background colour and text colour exactly as shown — do not invert, recolour, or restyle the logo to match the reference image. The reference is for installation realism only, not colour scheme.`; }
           const referenceUrl = referenceImageUrls[s.signType];
           if (referenceUrl) { signPrompt += `\nMatch the installation quality and physical realism of the reference sign image.`; }
           signPrompt += `\nBlend sign edges naturally with the building surface — photorealistic, physically mounted, no digital overlay look.`;
