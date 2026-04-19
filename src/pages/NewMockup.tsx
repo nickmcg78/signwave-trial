@@ -121,63 +121,12 @@ export default function NewMockup() {
         fileToDataUrl(state.logo),
       ])
 
-      // Burn a visible marker onto the building photo for each sign zone.
-      // We composite a bright magenta rectangle onto a copy of the photo so the
-      // AI model can visually see where to place each sign.
-      async function compositeMarker(
-        photoDataUrl: string,
-        zone: SignZone,
-      ): Promise<string> {
-        return new Promise((resolve, reject) => {
-          const img = new Image()
-          img.onload = () => {
-            const canvas = document.createElement('canvas')
-            canvas.width = img.naturalWidth
-            canvas.height = img.naturalHeight
-            const ctx = canvas.getContext('2d')
-            if (!ctx) { reject(new Error('Canvas not supported')); return }
-
-            // Draw original photo
-            ctx.drawImage(img, 0, 0)
-
-            // Convert zone percentages to pixels
-            const rawX = (zone.xPct / 100) * canvas.width
-            const rawY = (zone.yPct / 100) * canvas.height
-            const rawW = (zone.wPct / 100) * canvas.width
-            const rawH = (zone.hPct / 100) * canvas.height
-
-            // Inset the marker by ~15% on each side so the sign doesn't fill
-            // the entire zone edge-to-edge. The franchisee sees the full box
-            // they drew, but the AI sees a tighter target with breathing room.
-            const INSET = 0.15
-            const x = rawX + rawW * INSET
-            const y = rawY + rawH * INSET
-            const w = rawW * (1 - INSET * 2)
-            const h = rawH * (1 - INSET * 2)
-
-            // Draw semi-transparent magenta fill
-            ctx.fillStyle = 'rgba(255, 0, 255, 0.25)'
-            ctx.fillRect(x, y, w, h)
-
-            // Draw bright magenta border (thick enough for the model to see)
-            ctx.strokeStyle = 'rgba(255, 0, 255, 0.9)'
-            ctx.lineWidth = Math.max(4, Math.round(canvas.width * 0.005))
-            ctx.strokeRect(x, y, w, h)
-
-            resolve(canvas.toDataURL('image/jpeg', 0.92))
-          }
-          img.onerror = () => reject(new Error('Failed to load photo for marker'))
-          img.src = photoDataUrl
-        })
-      }
-
-      // Build the marked-up photo for the first sign's zone.
-      // For multi-sign, the edge function handles subsequent signs
-      // (their zones are sent as coordinates and applied to intermediate outputs).
-      const firstZone = state.signs[0]?.signZone
-      const markedPhotoUrl = firstZone
-        ? await compositeMarker(photoDataUrl, firstZone)
-        : photoDataUrl
+      // The building photo is sent UNMODIFIED. The edge function generates
+      // a transparent PNG mask from each sign's signZone coordinates and
+      // sends it to OpenAI's /v1/images/edits endpoint, which applies the
+      // mask to the first image. Previously we burned a visible magenta
+      // rectangle onto the photo; that was an unsupported convention and
+      // the model sometimes preserved the rectangle as part of the design.
 
       const mappedSigns = state.signs.map(s => {
         // When replacing, prepend the replacement framing to the spec so the
@@ -200,7 +149,7 @@ export default function NewMockup() {
 
       const { data, error } = await supabase.functions.invoke('generate-mockup', {
         body: {
-          shopImageUrl: markedPhotoUrl,
+          shopImageUrl: photoDataUrl,
           logoUrl: logoDataUrl,
           tagline: '',
           size: 'medium',

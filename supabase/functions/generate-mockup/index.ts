@@ -628,11 +628,14 @@ serve(async (req) => {
         let currentShopBase64 = shopImageBase64;
         let currentShopMime = shopMime;
 
-        // --- Sign placement: user-drawn zone via visible marker on photo ---
-        // The frontend burns a bright magenta rectangle onto the photo at the
-        // user-drawn zone. The model sees the marker and places the sign there,
-        // then removes the marker. Mask-based inpainting is not used because
-        // it's incompatible with image[] (used for logo reference).
+        // --- Sign placement: user-drawn zone via transparent PNG mask ---
+        // The frontend sends the unmodified building photo and the zone as
+        // percentage coordinates. We generate a same-size PNG mask per sign:
+        // transparent inside the zone (editable), opaque outside (preserved).
+        // Per current OpenAI docs, /v1/images/edits applies the mask to the
+        // first image when multiple images are sent. Combined with
+        // input_fidelity:"high", this is the documented way to preserve the
+        // source building while editing only inside the marked region.
 
         for (let signIndex = 0; signIndex < signs.length; signIndex++) {
           const s = signs[signIndex];
@@ -645,39 +648,54 @@ serve(async (req) => {
           const iterAR = iterDims ? aspectRatio(iterDims.width, iterDims.height) : null;
           console.log(`[generate-mockup] ${signLabel} input: ${iterDims?.width}x${iterDims?.height}, AR=${iterAR?.toFixed(4)}`);
 
-          let signSection = "";
-
-          if (s.replaceExisting) {
-            signSection += `Erase any existing sign graphics inside the marked area before installing the new sign.\n`;
-          } else {
-            signSection += `Install the new sign inside the marked area. Do not modify any existing signage elsewhere on the building.\n`;
-          }
-
+          // Mask-based flow: zone is communicated via a transparent PNG mask
+          // applied to image[0]. The frontend no longer burns any visible
+          // marker onto the photo, so the prompt no longer references one.
           const styleKey = Object.keys(styleDescriptions).includes(s.signType) ? s.signType : "fascia-panel";
-          signSection += `Type: ${s.signType}\nStyle: ${styleDescriptions[styleKey]}\n`;
+          const referenceUrl = referenceImageUrls[s.signType];
 
-          if (s.signPosition) { signSection += `Position: ${s.signPosition}\n`; }
-
-          // The building photo has a magenta rectangle burned onto it by the
-          // frontend, marking exactly where the sign should be placed.
           if (s.signZone) {
-            signSection += `The photo has a bright magenta rectangle marking the exact sign location. Install the sign ONLY inside that marked area. Remove the magenta marker completely.\n`;
             console.log(`[zone] Sign ${signIndex + 1} zone: x=${s.signZone.xPct.toFixed(1)}% y=${s.signZone.yPct.toFixed(1)}% w=${s.signZone.wPct.toFixed(1)}% h=${s.signZone.hPct.toFixed(1)}%`);
           }
 
-          let signPrompt = `Edit the uploaded shopfront photo to install signage with the provided brand logo.
-${signSection}
-${sigwaveStyleGuide}`;
+          const signSpecLines: string[] = [
+            `- sign type: ${s.signType}`,
+            `- style: ${styleDescriptions[styleKey]}`,
+          ];
+          if (s.signPosition) signSpecLines.push(`- placement and detail: ${s.signPosition}`);
+          if (tagline) signSpecLines.push(`- tagline to include: "${tagline}"`);
+          if (s.contactDetails) signSpecLines.push(`- contact details to include: ${s.contactDetails}`);
 
-          if (tagline) { signPrompt += `\nTagline: "${tagline}".`; }
-          if (s.contactDetails) { signPrompt += `\nContact details on sign: ${s.contactDetails}`; }
-          if (logoBase64) { signPrompt += `\nThe second image is the brand logo. Reproduce it exactly on the sign with correct colours and layout. Preserve the logo's original background colour and text colour exactly as shown — do not invert, recolour, or restyle the logo to match the reference image. The reference is for installation realism only, not colour scheme.`; }
-          const referenceUrl = referenceImageUrls[s.signType];
-          if (referenceUrl) { signPrompt += `\nMatch the installation quality and physical realism of the reference sign image.`; }
-          signPrompt += `\nBlend sign edges naturally with the building surface — photorealistic, physically mounted, no digital overlay look.`;
-          signPrompt += `\nGenerate ONLY the described sign inside the magenta-outlined rectangle. Everything outside the magenta rectangle — walls, windows, other signs, awnings, surroundings — must remain pixel-for-pixel identical to the original photo. Do not modify, update, reinterpret, or improve any existing signage outside the marked area.`;
+          const installVerb = s.replaceExisting
+            ? "remove the existing sign graphics and install"
+            : "install";
 
-          if (signIndex > 0) { signPrompt += `\nThe image already has ${signIndex} sign(s) — do not remove or modify them.`; }
+          let signPrompt = `Edit the first image only.
+
+The first image is the real shopfront photograph. Preserve the camera angle, composition, brickwork, awning, windows, structural lines, neighbouring shops, street elements, trees, vehicles, people, reflections, shadows, lighting, and all unmasked areas exactly as they are. Do not replace, redesign, restyle, or reinterpret the building. Do not change anything outside the masked region.
+
+Inside the masked region only, ${installVerb} a new ${s.signType} sign.
+
+Sign specification:
+${signSpecLines.join("\n")}
+
+Use the second image as the exact logo artwork reference. Reproduce the supplied logo as faithfully as possible: preserve text, letterforms, colours, spacing, and layout. Do not invert, recolour, redraw, paraphrase, or stylise the logo.`;
+
+          if (referenceUrl) {
+            signPrompt += `
+
+Use the third image only as a fabrication and installation realism reference. Match its physical plausibility, mounting realism, cabinet depth, edge detail, material behaviour, and lighting realism. Do not copy its branding, wording, colour palette, or design layout.`;
+          }
+
+          signPrompt += `
+
+${sigwaveStyleGuide}
+
+The result must look like a real on-site photograph of the same building after professional sign installation. It must not look like a digital overlay, design mockup, CGI render, or newly invented building.`;
+
+          if (signIndex > 0) {
+            signPrompt += `\n\nNote: the source image already contains ${signIndex} previously installed sign(s). Preserve those exactly along with the rest of the building.`;
+          }
 
           console.log(`[generate-mockup] Prompt length: ${signPrompt.length} characters`);
 
@@ -694,8 +712,7 @@ ${sigwaveStyleGuide}`;
 
             let attemptPrompt = signPrompt;
             if (attempt > 1) {
-              // Keep repair text minimal
-              attemptPrompt += ` Fix: preserve original framing.`;
+              attemptPrompt += `\n\nFix from previous attempt: preserve the exact source building from the first image. Edit only inside the mask. Do not invent or replace the building.`;
             }
 
             console.log(`[generate-mockup] Final prompt length: ${attemptPrompt.length} characters`);
@@ -703,19 +720,44 @@ ${sigwaveStyleGuide}`;
             const imageBlob = new Blob([imageBytes], { type: currentShopMime });
             const imageExt = currentShopMime === "image/png" ? "png" : "jpg";
 
-            const formData = new FormData();
-            formData.append("model", "gpt-image-1");
-            formData.append("prompt", attemptPrompt);
-            formData.append("size", "1024x1024");
-            // gpt-image-1 returns b64_json by default — no response_format parameter needed
+            // Generate the mask: transparent inside signZone (editable),
+            // opaque outside (preserved). Same dimensions as image[0].
+            // Falls back to a top-25% fascia band if no zone was drawn.
+            const maskWidth = iterDims?.width ?? 1024;
+            const maskHeight = iterDims?.height ?? 1024;
+            let leftPx: number, rightPx: number, topPx: number, bottomPx: number;
+            if (s.signZone) {
+              leftPx = Math.max(0, Math.round((s.signZone.xPct / 100) * maskWidth));
+              rightPx = Math.min(maskWidth, Math.round(((s.signZone.xPct + s.signZone.wPct) / 100) * maskWidth));
+              topPx = Math.max(0, Math.round((s.signZone.yPct / 100) * maskHeight));
+              bottomPx = Math.min(maskHeight, Math.round(((s.signZone.yPct + s.signZone.hPct) / 100) * maskHeight));
+            } else {
+              leftPx = 0;
+              rightPx = maskWidth;
+              topPx = 0;
+              bottomPx = Math.round(maskHeight * 0.25);
+            }
+            const maskPng = await generateMaskPNG(maskWidth, maskHeight, topPx, bottomPx, leftPx, rightPx);
+            const maskBlob = new Blob([maskPng], { type: "image/png" });
+            console.log(`[mask] ${signLabel}: ${maskWidth}x${maskHeight}, edit zone: x=[${leftPx}, ${rightPx}] y=[${topPx}, ${bottomPx}], png=${maskPng.length} bytes`);
 
-            // Two images: building photo + logo reference.
-            // OpenAI requires image[] array syntax for multiple images.
-            formData.append("image[]", imageBlob, `building.${imageExt}`);
+            const formData = new FormData();
+            formData.append("model", "gpt-image-1.5");
+            formData.append("prompt", attemptPrompt);
+            formData.append("input_fidelity", "high");
+            formData.append("quality", "high");
+            formData.append("size", "1536x1024");
+            formData.append("output_format", "png");
+            // gpt-image-1.5 returns b64_json by default
+
+            // Repeated `image` field (per current OpenAI API guidance for
+            // multi-image edits). Mask is applied to the first image; the
+            // remaining images are references the model can read but not edit.
+            formData.append("image", imageBlob, `building.${imageExt}`);
             const logoBytes = base64DecodeToBytes(logoBase64!);
             const logoBlob = new Blob([logoBytes], { type: logoMime });
             const logoExt = logoMime.includes("png") ? "png" : "jpg";
-            formData.append("image[]", logoBlob, `logo.${logoExt}`);
+            formData.append("image", logoBlob, `logo.${logoExt}`);
             console.log(`[generate-mockup] Logo appended (${logoMime}, ${logoBytes.length} bytes)`);
 
             if (referenceUrl) {
@@ -724,12 +766,14 @@ ${sigwaveStyleGuide}`;
                 const refBytes = base64DecodeToBytes(refBase64);
                 const refBlob = new Blob([refBytes], { type: refMime });
                 const refExt = refMime.includes("png") ? "png" : "jpg";
-                formData.append("image[]", refBlob, `reference.${refExt}`);
+                formData.append("image", refBlob, `reference.${refExt}`);
                 console.log(`[generate-mockup] Reference image appended for ${s.signType} (${refMime}, ${refBytes.length} bytes)`);
               } catch (refErr) {
                 console.warn(`[generate-mockup] Reference image fetch failed for ${s.signType}, continuing without it:`, refErr);
               }
             }
+
+            formData.append("mask", maskBlob, "mask.png");
 
             console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: OpenAI /v1/images/edits, logo=${!!logoBase64}, signZone=${!!s.signZone}, AR=${iterAR?.toFixed(4)}`);
 
