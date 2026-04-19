@@ -750,14 +750,15 @@ The result must look like a real on-site photograph of the same building after p
             formData.append("output_format", "png");
             // gpt-image-1.5 returns b64_json by default
 
-            // Repeated `image` field (per current OpenAI API guidance for
-            // multi-image edits). Mask is applied to the first image; the
-            // remaining images are references the model can read but not edit.
-            formData.append("image", imageBlob, `building.${imageExt}`);
+            // image[] array syntax (confirmed by OpenAI's error response:
+            // raw multipart requests must use image[], not repeated `image`).
+            // Mask is applied to the first image; the remaining images are
+            // references the model can read but not edit.
+            formData.append("image[]", imageBlob, `building.${imageExt}`);
             const logoBytes = base64DecodeToBytes(logoBase64!);
             const logoBlob = new Blob([logoBytes], { type: logoMime });
             const logoExt = logoMime.includes("png") ? "png" : "jpg";
-            formData.append("image", logoBlob, `logo.${logoExt}`);
+            formData.append("image[]", logoBlob, `logo.${logoExt}`);
             console.log(`[generate-mockup] Logo appended (${logoMime}, ${logoBytes.length} bytes)`);
 
             if (referenceUrl) {
@@ -766,7 +767,7 @@ The result must look like a real on-site photograph of the same building after p
                 const refBytes = base64DecodeToBytes(refBase64);
                 const refBlob = new Blob([refBytes], { type: refMime });
                 const refExt = refMime.includes("png") ? "png" : "jpg";
-                formData.append("image", refBlob, `reference.${refExt}`);
+                formData.append("image[]", refBlob, `reference.${refExt}`);
                 console.log(`[generate-mockup] Reference image appended for ${s.signType} (${refMime}, ${refBytes.length} bytes)`);
               } catch (refErr) {
                 console.warn(`[generate-mockup] Reference image fetch failed for ${s.signType}, continuing without it:`, refErr);
