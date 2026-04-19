@@ -741,12 +741,23 @@ The result must look like a real on-site photograph of the same building after p
             const maskBlob = new Blob([maskPng], { type: "image/png" });
             console.log(`[mask] ${signLabel}: ${maskWidth}x${maskHeight}, edit zone: x=[${leftPx}, ${rightPx}] y=[${topPx}, ${bottomPx}], png=${maskPng.length} bytes`);
 
+            // Pick the closest supported OpenAI size to the source aspect
+            // so the model doesn't pad with black bars. gpt-image-1.5
+            // currently supports 1024x1024 (square), 1536x1024 (landscape),
+            // and 1024x1536 (portrait).
+            const sourceRatio = iterAR ?? 1.0;
+            let outputSize: string;
+            if (sourceRatio > 1.25) outputSize = "1536x1024";
+            else if (sourceRatio < 0.8) outputSize = "1024x1536";
+            else outputSize = "1024x1024";
+            console.log(`[generate-mockup] ${signLabel}: sourceAR=${sourceRatio.toFixed(3)} → outputSize=${outputSize}`);
+
             const formData = new FormData();
             formData.append("model", "gpt-image-1.5");
             formData.append("prompt", attemptPrompt);
             formData.append("input_fidelity", "high");
             formData.append("quality", "high");
-            formData.append("size", "1536x1024");
+            formData.append("size", outputSize);
             formData.append("output_format", "png");
             // gpt-image-1.5 returns b64_json by default
 
