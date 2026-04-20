@@ -333,6 +333,16 @@ function StepPhoto({ state, setState }: StepProps) {
         Take a photo of the prospect's building, or upload one from your camera roll.
       </p>
 
+      <div className="mt-3 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-900 leading-relaxed">
+        <p className="font-semibold mb-1">Tips for the best result:</p>
+        <ul className="list-disc list-inside space-y-0.5">
+          <li>Landscape orientation, taken straight-on (not at an angle)</li>
+          <li>Whole shopfront visible — fascia, windows, door, awning</li>
+          <li>Good daylight, no people walking in front of the sign area</li>
+          <li>Avoid heavy zoom — stand back rather than zooming in</li>
+        </ul>
+      </div>
+
       {/* Hidden native file input — triggered by the visible button below.
           accept="image/*" + capture="environment" tells iOS Safari to offer
           the rear camera directly, which is what a franchisee standing
@@ -404,6 +414,16 @@ function StepLogo({ state, setState }: StepProps) {
       <p className="text-gray-500 text-sm mt-1">
         PNG with transparent background works best.
       </p>
+
+      <div className="mt-3 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-900 leading-relaxed">
+        <p className="font-semibold mb-1">Tips for the best result:</p>
+        <ul className="list-disc list-inside space-y-0.5">
+          <li>High-resolution PNG (the brand's official logo file is ideal)</li>
+          <li>Transparent background &mdash; avoids weird outlines on the sign</li>
+          <li>If the logo has both an icon and text, use the full lock-up</li>
+          <li>Avoid screenshots from a website — quality is poor</li>
+        </ul>
+      </div>
 
       {/* No capture attribute — logos come from files, not the camera.
           Accept list is explicit so iOS doesn't offer camera as an option. */}
@@ -507,6 +527,16 @@ function StepType({ state, setState, signIndex }: StepProps) {
         {signIndex > 0 ? `Sign ${signIndex + 1}: What type?` : 'What type of sign?'}
       </h2>
 
+      <div className="mt-3 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-900 leading-relaxed">
+        <p className="font-semibold mb-1">Choosing the right type:</p>
+        <ul className="list-disc list-inside space-y-0.5">
+          <li><strong>Fascia panel</strong> &mdash; flat sign on the band above the entrance. Most common.</li>
+          <li><strong>Dimensional letters</strong> &mdash; individual 3D letters mounted on the wall. Premium feel.</li>
+          <li><strong>Lightbox</strong> &mdash; backlit cabinet, ideal for night visibility.</li>
+          <li><strong>Window vinyl</strong> &mdash; printed graphic on the glass. Best on shopfronts with large unobstructed windows.</li>
+        </ul>
+      </div>
+
       <div className="mt-6 grid grid-cols-2 gap-3">
         {SIGN_TYPES.map(type => {
           const isSelected = state.signs[signIndex]?.signType === type.id
@@ -579,6 +609,17 @@ function StepSpec({ state, setState, signIndex, onAddSign }: StepProps) {
       <h2 className="text-2xl font-bold text-gray-900">
         {signIndex > 0 ? `Sign ${signIndex + 1}: Describe the sign` : 'Describe the sign'}
       </h2>
+
+      <div className="mt-3 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-900 leading-relaxed">
+        <p className="font-semibold mb-1">Drawing the sign zone:</p>
+        <ul className="list-disc list-inside space-y-0.5">
+          <li>Tap and drag to draw a rectangle where the sign should go</li>
+          <li>Be deliberate about size &mdash; the AI uses your rectangle as the target</li>
+          <li>For fascia panels, draw across the existing fascia band</li>
+          <li>For window vinyl, draw on the glass area</li>
+          <li>You can clear and redraw if the position isn't quite right</li>
+        </ul>
+      </div>
 
       {/* Sign zone selector — draw a rectangle on the building photo to
           define where this sign goes. Each sign gets its own zone. */}

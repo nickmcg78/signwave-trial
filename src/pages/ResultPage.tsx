@@ -365,17 +365,25 @@ function CompleteScreen({
           paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
         }}
       >
+        {!feedbackSent && (
+          <p className="max-w-lg mx-auto w-full text-center text-xs text-gray-500 mb-2">
+            ↑ Submit the feedback above to enable Download
+          </p>
+        )}
         <div className="max-w-lg mx-auto w-full grid grid-cols-2 gap-3">
           {feedbackSent ? (
             <button
               onClick={handleDownload}
               className="min-w-0 min-h-[60px] border border-gray-300 text-gray-700 font-semibold rounded-xl text-base active:bg-gray-100"
             >
-              Download
+              ⬇ Download
             </button>
           ) : (
-            <div className="min-w-0 min-h-[60px] border border-gray-200 text-gray-300 font-semibold rounded-xl text-base flex items-center justify-center cursor-not-allowed">
-              Download
+            <div
+              className="min-w-0 min-h-[60px] border border-dashed border-gray-300 bg-gray-50 text-gray-400 font-semibold rounded-xl text-base flex items-center justify-center cursor-not-allowed"
+              title="Complete the feedback form above to enable download"
+            >
+              🔒 Download
             </div>
           )}
           <button

@@ -542,10 +542,36 @@ async function callGeminiImageEdit(
   if (!response.ok) {
     const errBody = await response.text();
     console.error(`[gemini] API error HTTP ${response.status}:`, errBody);
-    if (response.status === 400) throw new Error(`Gemini validation error: ${errBody.slice(0, 300)}`);
-    if (response.status === 401 || response.status === 403) throw new Error("Gemini API key invalid or missing.");
-    if (response.status === 429) throw new Error("Too many AI requests. Please wait a moment and try again.");
-    throw new Error(`Gemini API error: HTTP ${response.status}`);
+
+    // Try to parse Gemini's structured error for a friendlier message.
+    let parsedError: { error?: { message?: string; status?: string } } = {};
+    try { parsedError = JSON.parse(errBody); } catch { /* not JSON */ }
+    const errMsg = parsedError.error?.message || "";
+    const errStatus = parsedError.error?.status || "";
+
+    // Specific known failure modes with user-friendly messages.
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("AI service authentication failed. Please contact support.");
+    }
+    if (response.status === 429 || /quota|rate/i.test(errMsg) || errStatus === "RESOURCE_EXHAUSTED") {
+      throw new Error("AI service is busy right now. Please wait a moment and try again.");
+    }
+    if (/billing|payment|account/i.test(errMsg) || errStatus === "PERMISSION_DENIED") {
+      throw new Error("AI service billing issue. Please contact support to check the account.");
+    }
+    if (/safety|blocked|harmful/i.test(errMsg) || errStatus === "SAFETY") {
+      throw new Error("The AI declined to generate this mockup (safety filter). Try a different photo or sign description.");
+    }
+    if (response.status === 400 && /image|format|invalid/i.test(errMsg)) {
+      throw new Error("The AI could not process the provided image. Try a different photo or re-upload.");
+    }
+    if (response.status === 400) {
+      throw new Error(`AI validation error: ${errMsg.slice(0, 200) || errBody.slice(0, 200)}`);
+    }
+    if (response.status >= 500) {
+      throw new Error("AI service is temporarily unavailable. Please try again in a moment.");
+    }
+    throw new Error(`AI service error (HTTP ${response.status}). Please try again.`);
   }
 
   const data = await response.json();
@@ -668,7 +694,11 @@ serve(async (req) => {
 
     const { data: jobData, error: jobError } = await supabaseAdmin
       .from("mockup_jobs")
-      .insert({ status: "pending", progress: `Processing 0/${signs.length} signs...` })
+      .insert({
+        status: "pending",
+        progress: `Processing 0/${signs.length} signs...`,
+        user_id: user.id,
+      })
       .select("id")
       .single();
 
