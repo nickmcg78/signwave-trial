@@ -102,38 +102,46 @@ export default function AdminDashboard() {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-gray-200">
-            <table className="w-full text-sm text-left">
+            <table className="w-full text-sm text-left table-fixed">
+              <colgroup>
+                <col className="w-[110px]" />
+                <col className="w-[80px]" />
+                <col className="w-[90px]" />
+                <col className="w-[70px]" />
+                <col />
+                <col className="w-[60px]" />
+              </colgroup>
               <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
                 <tr>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">User</th>
-                  <th className="px-4 py-3">Rating</th>
-                  <th className="px-4 py-3">Send to client?</th>
-                  <th className="px-4 py-3">Comment</th>
-                  <th className="px-4 py-3">Mockup</th>
+                  <th className="px-3 py-3">Date</th>
+                  <th className="px-3 py-3">User</th>
+                  <th className="px-3 py-3">Rating</th>
+                  <th className="px-3 py-3">Send?</th>
+                  <th className="px-3 py-3">Comment</th>
+                  <th className="px-3 py-3 text-right">Link</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
                 {feedback.map((row) => (
                   <tr key={row.id}>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                    <td className="px-3 py-3 text-gray-600 whitespace-nowrap text-xs">
                       {formatDate(row.created_at)}
                     </td>
-                    <td className="px-4 py-3 text-gray-500 font-mono text-xs">
+                    <td className="px-3 py-3 text-gray-500 font-mono text-xs truncate" title={row.user_id ?? ''}>
                       {shortId(row.user_id)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3 whitespace-nowrap">
                       {row.rating === 'up' ? (
-                        <span className="text-green-600 font-medium">👍 Good</span>
+                        <span className="text-green-600 font-medium text-xs">👍 Good</span>
                       ) : (
-                        <span className="text-red-600 font-medium">👎 Poor</span>
+                        <span className="text-red-600 font-medium text-xs">👎 Poor</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{row.would_use}</td>
-                    <td className="px-4 py-3 text-gray-500 max-w-xs truncate">
+                    <td className="px-3 py-3 text-gray-700 text-xs">{row.would_use}</td>
+                    <td className="px-3 py-3 text-gray-500 truncate text-xs" title={row.comment ?? ''}>
                       {row.comment ?? '—'}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3 text-right">
                       <Link to={`/result/${row.job_id}`} className="text-blue-600 text-xs underline">
                         view
                       </Link>
