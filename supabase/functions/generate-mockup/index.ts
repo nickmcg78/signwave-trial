@@ -439,6 +439,140 @@ function getSupabaseAdmin() {
   return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 }
 
+// --- Gemini 2.5 Flash Image integration ---
+// gpt-image-1 and gpt-image-1.5 both empirically ignored masks when given
+// multiple image[] inputs (sign placed on natural fascia regardless of
+// where user marked). Gemini 2.5 Flash Image (formerly "Nano Banana") is
+// our chosen alternative. It does NOT support masks — placement is via
+// natural-language description in the prompt instead.
+
+interface ZoneForDescribe { xPct: number; yPct: number; wPct: number; hPct: number; }
+
+/**
+ * Translate a drawn rectangle (percentages) into natural-language placement
+ * Gemini can interpret. Combines descriptive English ("upper centre-left")
+ * with explicit numerics so the model has both pattern-match AND precise data.
+ */
+function describeZone(zone: ZoneForDescribe): string {
+  const cx = zone.xPct + zone.wPct / 2;
+  const cy = zone.yPct + zone.hPct / 2;
+
+  let vert: string;
+  if (cy < 22) vert = "upper";
+  else if (cy < 42) vert = "upper-middle";
+  else if (cy < 58) vert = "middle";
+  else if (cy < 78) vert = "lower-middle";
+  else vert = "lower";
+
+  let horz: string;
+  if (cx < 22) horz = "left";
+  else if (cx < 42) horz = "centre-left";
+  else if (cx < 58) horz = "centre";
+  else if (cx < 78) horz = "centre-right";
+  else horz = "right";
+
+  return `Place the sign in the ${vert} ${horz} portion of the building. ` +
+    `The sign should occupy approximately ${Math.round(zone.wPct)}% of the image width ` +
+    `and ${Math.round(zone.hPct)}% of the image height, ` +
+    `centred at approximately ${Math.round(cx)}% from the left edge ` +
+    `and ${Math.round(cy)}% from the top edge of the image. ` +
+    `Do not extend the sign beyond these bounds — keep it contained as a discrete rectangle, ` +
+    `even if there is additional fascia, wall, or window space available outside this region.`;
+}
+
+/** Map source aspect ratio to closest Gemini-supported aspect ratio string. */
+function pickGeminiAspectRatio(sourceRatio: number): string {
+  // Supported per docs: 1:1, 1:4, 1:8, 2:3, 3:2, 3:4, 4:1, 4:3, 4:5, 5:4, 8:1, 9:16, 16:9, 21:9
+  const candidates: Array<[string, number]> = [
+    ["9:16", 9 / 16], ["2:3", 2 / 3], ["3:4", 3 / 4], ["4:5", 4 / 5],
+    ["1:1", 1], ["5:4", 5 / 4], ["4:3", 4 / 3], ["3:2", 3 / 2],
+    ["16:9", 16 / 9], ["21:9", 21 / 9],
+  ];
+  let best = candidates[0];
+  let bestDelta = Math.abs(sourceRatio - best[1]);
+  for (const c of candidates) {
+    const d = Math.abs(sourceRatio - c[1]);
+    if (d < bestDelta) { best = c; bestDelta = d; }
+  }
+  return best[0];
+}
+
+interface GeminiResult { base64: string; mime: string; }
+
+/**
+ * Call Gemini 2.5 Flash Image to edit the building photo, supplying the
+ * brand logo (and optional reference image) as additional input parts.
+ * Returns the generated image as base64 + mime, or throws on hard failure.
+ */
+async function callGeminiImageEdit(
+  apiKey: string,
+  prompt: string,
+  buildingBase64: string,
+  buildingMime: string,
+  logoBase64: string,
+  logoMime: string,
+  referenceBase64: string | null,
+  referenceMime: string | null,
+  aspectRatio: string,
+): Promise<GeminiResult | null> {
+  const parts: Array<Record<string, unknown>> = [
+    { text: prompt },
+    { inline_data: { mime_type: buildingMime, data: buildingBase64 } },
+    { inline_data: { mime_type: logoMime, data: logoBase64 } },
+  ];
+  if (referenceBase64 && referenceMime) {
+    parts.push({ inline_data: { mime_type: referenceMime, data: referenceBase64 } });
+  }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts }],
+        generationConfig: {
+          responseModalities: ["TEXT", "IMAGE"],
+          imageConfig: { aspectRatio },
+        },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const errBody = await response.text();
+    console.error(`[gemini] API error HTTP ${response.status}:`, errBody);
+    if (response.status === 400) throw new Error(`Gemini validation error: ${errBody.slice(0, 300)}`);
+    if (response.status === 401 || response.status === 403) throw new Error("Gemini API key invalid or missing.");
+    if (response.status === 429) throw new Error("Too many AI requests. Please wait a moment and try again.");
+    throw new Error(`Gemini API error: HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  const candidate = data.candidates?.[0];
+  if (!candidate) {
+    console.error(`[gemini] No candidates in response:`, JSON.stringify(data).slice(0, 500));
+    return null;
+  }
+  // Log any text the model included alongside the image — useful for debugging.
+  const textPart = candidate.content?.parts?.find((p: { text?: string }) => typeof p.text === "string");
+  if (textPart?.text) console.log(`[gemini] model text: ${String(textPart.text).slice(0, 300)}`);
+
+  const imagePart = candidate.content?.parts?.find(
+    (p: { inline_data?: unknown; inlineData?: unknown }) => p.inline_data || p.inlineData,
+  );
+  if (!imagePart) {
+    console.error(`[gemini] No image part in response. Finish reason: ${candidate.finishReason}. Parts:`, JSON.stringify(candidate.content?.parts).slice(0, 500));
+    return null;
+  }
+
+  const imgData = (imagePart.inline_data ?? imagePart.inlineData) as { data: string; mime_type?: string; mimeType?: string };
+  return {
+    base64: imgData.data,
+    mime: imgData.mime_type ?? imgData.mimeType ?? "image/png",
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -524,11 +658,13 @@ serve(async (req) => {
 
     console.log(`[generate-mockup] ${signs.length} sign(s) requested`);
 
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) return new Response(JSON.stringify({ error: "OpenAI API key not configured" }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 });
+    // Image generation is now done via Gemini 2.5 Flash Image (Nano Banana)
+    // — OpenAI's image edits endpoint empirically ignored masks with
+    // multi-image inputs. OPENAI_API_KEY is no longer required.
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) return new Response(JSON.stringify({ error: "Gemini API key not configured (set GEMINI_API_KEY in Supabase function secrets)" }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 });
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
     const { data: jobData, error: jobError } = await supabaseAdmin
       .from("mockup_jobs")
@@ -648,9 +784,9 @@ serve(async (req) => {
           const iterAR = iterDims ? aspectRatio(iterDims.width, iterDims.height) : null;
           console.log(`[generate-mockup] ${signLabel} input: ${iterDims?.width}x${iterDims?.height}, AR=${iterAR?.toFixed(4)}`);
 
-          // Mask-based flow: zone is communicated via a transparent PNG mask
-          // applied to image[0]. The frontend no longer burns any visible
-          // marker onto the photo, so the prompt no longer references one.
+          // Gemini flow: spatial placement is communicated via natural-language
+          // description (Gemini does not support masks). The user's drawn zone
+          // is translated into an English description by describeZone().
           const styleKey = Object.keys(styleDescriptions).includes(s.signType) ? s.signType : "fascia-panel";
           const referenceUrl = referenceImageUrls[s.signType];
 
@@ -658,40 +794,49 @@ serve(async (req) => {
             console.log(`[zone] Sign ${signIndex + 1} zone: x=${s.signZone.xPct.toFixed(1)}% y=${s.signZone.yPct.toFixed(1)}% w=${s.signZone.wPct.toFixed(1)}% h=${s.signZone.hPct.toFixed(1)}%`);
           }
 
+          const placementDescription = s.signZone
+            ? describeZone(s.signZone)
+            : "Place the sign on the building's natural fascia band (the horizontal area above the entrance and below the roofline).";
+
           const signSpecLines: string[] = [
-            `- sign type: ${s.signType}`,
-            `- style: ${styleDescriptions[styleKey]}`,
+            `- Sign type: ${s.signType}`,
+            `- Construction and style: ${styleDescriptions[styleKey]}`,
           ];
-          if (s.signPosition) signSpecLines.push(`- placement and detail: ${s.signPosition}`);
-          if (tagline) signSpecLines.push(`- tagline to include: "${tagline}"`);
-          if (s.contactDetails) signSpecLines.push(`- contact details to include: ${s.contactDetails}`);
+          if (s.signPosition) signSpecLines.push(`- Additional spec: ${s.signPosition}`);
+          if (tagline) signSpecLines.push(`- Tagline to include on the sign: "${tagline}"`);
+          if (s.contactDetails) signSpecLines.push(`- Contact details to include on the sign: ${s.contactDetails}`);
 
           const installVerb = s.replaceExisting
-            ? "remove the existing sign graphics and install"
-            : "install";
+            ? "Remove any existing sign graphics in the placement area and install"
+            : "Install";
 
-          let signPrompt = `Edit the first image only.
+          let signPrompt = `Edit the first image (a real shopfront photograph) to install a new ${s.signType} sign on the building, using the supplied brand logo.
 
-The first image is the real shopfront photograph. Preserve the camera angle, composition, brickwork, awning, windows, structural lines, neighbouring shops, street elements, trees, vehicles, people, reflections, shadows, lighting, and all unmasked areas exactly as they are. Do not replace, redesign, restyle, or reinterpret the building. Do not change anything outside the masked region.
+PLACEMENT
+${placementDescription}
 
-Inside the masked region only, ${installVerb} a new ${s.signType} sign.
-
-Sign specification:
+SIGN SPECIFICATION
+${installVerb} the sign as described:
 ${signSpecLines.join("\n")}
 
-Use the second image as the exact logo artwork reference. Reproduce the supplied logo as faithfully as possible: preserve text, letterforms, colours, spacing, and layout. Do not invert, recolour, redraw, paraphrase, or stylise the logo.`;
+LOGO REPRODUCTION (CRITICAL)
+The second image is the brand logo. Reproduce it on the sign EXACTLY as supplied — preserve text, letterforms, colours (including the BACKGROUND colour of the logo), spacing, and layout. Do NOT invert the logo. Do NOT recolour the logo. Do NOT redraw or restyle the logo. If the supplied logo has a white background with coloured text, the installed sign must show a white background with the same coloured text — not the inverse.`;
 
           if (referenceUrl) {
             signPrompt += `
 
-Use the third image only as a fabrication and installation realism reference. Match its physical plausibility, mounting realism, cabinet depth, edge detail, material behaviour, and lighting realism. Do not copy its branding, wording, colour palette, or design layout.`;
+INSTALLATION REFERENCE
+The third image is a reference for fabrication and installation realism only — cabinet depth, mounting style, edge detail, material behaviour, lighting realism. Do NOT copy the reference's branding, wording, colour palette, or design layout.`;
           }
 
           signPrompt += `
 
+PRESERVE THE REST OF THE BUILDING (CRITICAL)
+The first image shows a real building. Preserve everything outside the new sign's placement area exactly as it is: brickwork, render, paint, windows, awning, doors, structural lines, neighbouring shops, street elements, footpath, trees, vehicles, people, reflections, shadows, lighting, sky. Do not redesign, restyle, or reinterpret any other part of the building or its surroundings. The result must depict the SAME real building, only with the new sign added.
+
 ${sigwaveStyleGuide}
 
-The result must look like a real on-site photograph of the same building after professional sign installation. It must not look like a digital overlay, design mockup, CGI render, or newly invented building.`;
+The result must look like a real on-site photograph of the same building after professional sign installation. It must not look like a digital overlay, design mockup, CGI render, or a newly invented building.`;
 
           if (signIndex > 0) {
             signPrompt += `\n\nNote: the source image already contains ${signIndex} previously installed sign(s). Preserve those exactly along with the rest of the building.`;
@@ -712,119 +857,63 @@ The result must look like a real on-site photograph of the same building after p
 
             let attemptPrompt = signPrompt;
             if (attempt > 1) {
-              attemptPrompt += `\n\nFix from previous attempt: preserve the exact source building from the first image. Edit only inside the mask. Do not invent or replace the building.`;
+              attemptPrompt += `\n\nFix from previous attempt: preserve the exact source building from the first image. Keep the new sign contained to the placement area described above. Do not invent or replace the building. Do not extend the sign to cover the entire fascia or window — keep it as the discrete rectangle described.`;
             }
 
             console.log(`[generate-mockup] Final prompt length: ${attemptPrompt.length} characters`);
-            const imageBytes = base64DecodeToBytes(currentShopBase64);
-            const imageBlob = new Blob([imageBytes], { type: currentShopMime });
-            const imageExt = currentShopMime === "image/png" ? "png" : "jpg";
 
-            // Generate the mask: transparent inside signZone (editable),
-            // opaque outside (preserved). Same dimensions as image[0].
-            // Falls back to a top-25% fascia band if no zone was drawn.
-            const maskWidth = iterDims?.width ?? 1024;
-            const maskHeight = iterDims?.height ?? 1024;
-            let leftPx: number, rightPx: number, topPx: number, bottomPx: number;
-            if (s.signZone) {
-              leftPx = Math.max(0, Math.round((s.signZone.xPct / 100) * maskWidth));
-              rightPx = Math.min(maskWidth, Math.round(((s.signZone.xPct + s.signZone.wPct) / 100) * maskWidth));
-              topPx = Math.max(0, Math.round((s.signZone.yPct / 100) * maskHeight));
-              bottomPx = Math.min(maskHeight, Math.round(((s.signZone.yPct + s.signZone.hPct) / 100) * maskHeight));
-            } else {
-              leftPx = 0;
-              rightPx = maskWidth;
-              topPx = 0;
-              bottomPx = Math.round(maskHeight * 0.25);
-            }
-            const maskPng = await generateMaskPNG(maskWidth, maskHeight, topPx, bottomPx, leftPx, rightPx);
-            const maskBlob = new Blob([maskPng], { type: "image/png" });
-            console.log(`[mask] ${signLabel}: ${maskWidth}x${maskHeight}, edit zone: x=[${leftPx}, ${rightPx}] y=[${topPx}, ${bottomPx}], png=${maskPng.length} bytes`);
-
-            // Pick the closest supported OpenAI size to the source aspect
-            // so the model doesn't pad with black bars. gpt-image-1.5
-            // currently supports 1024x1024 (square), 1536x1024 (landscape),
-            // and 1024x1536 (portrait).
+            // Pick output aspect ratio closest to source. Gemini supports
+            // a wide range including 21:9 — no letterboxing on ultra-wide.
+            // (Renamed from `aspectRatio` to avoid shadowing the top-level
+            // aspectRatio() helper used elsewhere for w/h calculations.)
             const sourceRatio = iterAR ?? 1.0;
-            let outputSize: string;
-            if (sourceRatio > 1.25) outputSize = "1536x1024";
-            else if (sourceRatio < 0.8) outputSize = "1024x1536";
-            else outputSize = "1024x1024";
-            console.log(`[generate-mockup] ${signLabel}: sourceAR=${sourceRatio.toFixed(3)} → outputSize=${outputSize}`);
+            const geminiAspect = pickGeminiAspectRatio(sourceRatio);
+            console.log(`[generate-mockup] ${signLabel}: sourceAR=${sourceRatio.toFixed(3)} → Gemini aspectRatio=${geminiAspect}`);
 
-            const formData = new FormData();
-            formData.append("model", "gpt-image-1.5");
-            formData.append("prompt", attemptPrompt);
-            formData.append("input_fidelity", "high");
-            formData.append("quality", "high");
-            formData.append("size", outputSize);
-            formData.append("output_format", "png");
-            // gpt-image-1.5 returns b64_json by default
-
-            // image[] array syntax (confirmed by OpenAI's error response:
-            // raw multipart requests must use image[], not repeated `image`).
-            // Mask is applied to the first image; the remaining images are
-            // references the model can read but not edit.
-            formData.append("image[]", imageBlob, `building.${imageExt}`);
-            const logoBytes = base64DecodeToBytes(logoBase64!);
-            const logoBlob = new Blob([logoBytes], { type: logoMime });
-            const logoExt = logoMime.includes("png") ? "png" : "jpg";
-            formData.append("image[]", logoBlob, `logo.${logoExt}`);
-            console.log(`[generate-mockup] Logo appended (${logoMime}, ${logoBytes.length} bytes)`);
-
+            // Fetch reference image if available for this sign type
+            let refBase64Final: string | null = null;
+            let refMimeFinal: string | null = null;
             if (referenceUrl) {
               try {
-                const { base64: refBase64, mime: refMime } = await fetchImageAsBase64(referenceUrl);
-                const refBytes = base64DecodeToBytes(refBase64);
-                const refBlob = new Blob([refBytes], { type: refMime });
-                const refExt = refMime.includes("png") ? "png" : "jpg";
-                formData.append("image[]", refBlob, `reference.${refExt}`);
-                console.log(`[generate-mockup] Reference image appended for ${s.signType} (${refMime}, ${refBytes.length} bytes)`);
+                const { base64: rb, mime: rm } = await fetchImageAsBase64(referenceUrl);
+                refBase64Final = rb;
+                refMimeFinal = rm;
+                console.log(`[generate-mockup] Reference image fetched for ${s.signType} (${rm}, ${rb.length} b64 chars)`);
               } catch (refErr) {
                 console.warn(`[generate-mockup] Reference image fetch failed for ${s.signType}, continuing without it:`, refErr);
               }
             }
 
-            formData.append("mask", maskBlob, "mask.png");
+            console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: Gemini 2.5 Flash Image, logo=${!!logoBase64}, ref=${!!refBase64Final}, signZone=${!!s.signZone}, AR=${iterAR?.toFixed(4)}`);
 
-            console.log(`[generate-mockup] ${signLabel} Attempt ${attempt}: OpenAI /v1/images/edits, logo=${!!logoBase64}, signZone=${!!s.signZone}, AR=${iterAR?.toFixed(4)}`);
+            let geminiResult: GeminiResult | null = null;
+            try {
+              geminiResult = await callGeminiImageEdit(
+                GEMINI_API_KEY!,
+                attemptPrompt,
+                currentShopBase64,
+                currentShopMime,
+                logoBase64!,
+                logoMime,
+                refBase64Final,
+                refMimeFinal,
+                geminiAspect,
+              );
+            } catch (geminiErr) {
+              const msg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
+              console.error(`[generate-mockup] ${signLabel} Attempt ${attempt} Gemini error:`, msg);
+              if (attempt < MAX_GENERATION_ATTEMPTS) { lastFailReason = `gemini_error: ${msg}`; continue; }
+              throw geminiErr;
+            }
 
-            const response = await fetch("https://api.openai.com/v1/images/edits", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${OPENAI_API_KEY}`,
-              },
-              body: formData,
-            });
-
-            if (!response.ok) {
-              const errorBody = await response.text();
-              console.error(`[generate-mockup] ${signLabel} Attempt ${attempt} OpenAI API error: HTTP ${response.status}`, errorBody);
-              if (response.status === 429) throw new Error("Too many AI requests. Please wait a moment and try again.");
-              if (response.status === 401 || response.status === 403) {
-                console.error(`[generate-mockup] OpenAI auth failed. Key prefix: ${OPENAI_API_KEY?.substring(0, 8)}...`);
-                throw new Error("OpenAI API key invalid or not configured correctly.");
-              }
-              if (response.status === 400) {
-                console.error(`[generate-mockup] OpenAI validation error:`, errorBody);
-                throw new Error("The AI could not process the provided image. Please try a different photo or re-upload.");
-              }
-              if (attempt < MAX_GENERATION_ATTEMPTS) { lastFailReason = `api_error_${response.status}`; continue; }
+            if (!geminiResult || !geminiResult.base64) {
+              console.warn(`[generate-mockup] ${signLabel} Attempt ${attempt}: Gemini returned no image`);
+              if (attempt < MAX_GENERATION_ATTEMPTS) { lastFailReason = "no_image_in_gemini_response"; continue; }
               throw new Error(`Sign ${signIndex + 1} could not be generated. Please try again.`);
             }
 
-            const data = await response.json();
-            const b64Result: string | undefined = data.data?.[0]?.b64_json;
-
-            if (!b64Result) {
-              console.warn(`[generate-mockup] ${signLabel} Attempt ${attempt}: No b64_json in OpenAI response`);
-              if (attempt < MAX_GENERATION_ATTEMPTS) { lastFailReason = "no_image_in_response"; continue; }
-              throw new Error(`Sign ${signIndex + 1} could not be generated. Please try again.`);
-            }
-
-            // OpenAI returns raw base64 (PNG). No need to fetch from a URL.
-            const genB64 = b64Result;
-            const genMime = "image/png";
+            const genB64 = geminiResult.base64;
+            const genMime = geminiResult.mime;
 
             lastGeneratedMime = genMime;
             lastGeneratedBase64 = genB64;
