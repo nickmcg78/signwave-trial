@@ -13,6 +13,8 @@ const SIGN_TYPE_MAP: Record<string, string> = {
   illuminated_dimensional_letters: '3d-letters',
   dimensional_letters: '3d-letters',
   lightbox: 'lightbox',
+  under_awning_lightbox: 'under-awning-lightbox',
+  blade_sign: 'blade-sign',
   window_vinyl: 'window-perf',
 }
 
@@ -513,6 +515,20 @@ const SIGN_TYPES: { id: string; name: string; description: string; defaultSpec: 
       'Slim-profile lightbox cabinet, 120mm deep, polished aluminium frame. White acrylic face with full-colour printed graphic. Even internal LED illumination.',
   },
   {
+    id: 'under_awning_lightbox',
+    name: 'Under-Awning Lightbox',
+    description: 'Illuminated lightbox hanging under an awning, projects perpendicular to the building',
+    defaultSpec:
+      'Slim-profile illuminated lightbox cabinet mounted to the underside of the awning or overhang, projecting perpendicular to the building face. Double-sided so the sign is visible from both directions of pedestrian traffic. White acrylic face with full-colour printed graphic, internal LED illumination, slim aluminium frame.',
+  },
+  {
+    id: 'blade_sign',
+    name: 'Blade Sign',
+    description: 'Non-illuminated projecting sign mounted on a wall bracket',
+    defaultSpec:
+      'Double-sided blade sign projecting perpendicular from the building wall on a visible metal bracket arm. Non-illuminated painted or printed face. Classic proportions, visible from both directions along the street.',
+  },
+  {
     id: 'window_vinyl',
     name: 'Window Graphics',
     description: 'Printed, frosted or cut-out graphics applied directly to glass',
@@ -547,7 +563,9 @@ function StepType({ state, setState, signIndex }: StepProps) {
         <ul className="list-disc list-inside space-y-0.5">
           <li><strong>Fascia panel</strong> &mdash; flat sign on the band above the entrance. Most common.</li>
           <li><strong>Dimensional letters</strong> &mdash; individual 3D letters mounted on the wall. Premium feel.</li>
-          <li><strong>Lightbox</strong> &mdash; backlit cabinet, ideal for night visibility.</li>
+          <li><strong>Lightbox</strong> &mdash; backlit cabinet mounted flat to the fascia. Good for night visibility.</li>
+          <li><strong>Under-Awning Lightbox</strong> &mdash; illuminated lightbox hanging from the <em>underside</em> of an awning, projecting perpendicular to the shopfront. Double-sided, visible both directions along the street.</li>
+          <li><strong>Blade sign</strong> &mdash; non-illuminated projecting sign on a <em>wall-mounted bracket arm</em>. Good when there's no awning or for a simpler look.</li>
           <li><strong>Window graphics</strong> &mdash; printed or frosted graphic applied to the glass. Best on shopfronts with large unobstructed windows.</li>
         </ul>
       </div>

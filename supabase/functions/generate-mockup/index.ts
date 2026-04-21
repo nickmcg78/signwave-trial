@@ -768,7 +768,8 @@ serve(async (req) => {
 
         const styleDescriptions: Record<string, string> = {
           "window-perf": "One-Way Vision perforated vinyl on glass, semi-transparent, shop interior visible through it. Not a solid sign.",
-          "blade-sign": "Blade sign projecting outward from wall at 90 degrees, hanging from a bracket arm.",
+          "blade-sign": "Double-sided blade sign projecting perpendicularly from the building wall on a visible metal bracket arm. Non-illuminated painted or printed face. Sign hangs from the bracket and is visible from both directions along the street.",
+          "under-awning-lightbox": "Slim illuminated lightbox cabinet mounted to the underside of the building's awning or overhang, projecting outward perpendicular to the building face. Double-sided so it's visible from both directions of pedestrian traffic. White acrylic face with internal LED illumination, slim aluminium frame.",
           "3d-letters": "Dimensional channel letters mounted to wall with stand-off pins, each casting its own shadow.",
           lightbox: "Illuminated lightbox cabinet sign, enclosed backlit panel with aluminium frame.",
           "fascia-panel": "Flat panel sign applied directly to the building's fascia board.",
@@ -778,6 +779,8 @@ serve(async (req) => {
           "3d-letters": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/reference-images/dimensional-letters.jpg",
           "lightbox": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/reference-images/lightbox.jpg",
           "window-perf": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/reference-images/window-vinyl.jpg",
+          "blade-sign": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/reference-images/blade-sign.jpg",
+          "under-awning-lightbox": "https://mcujzbcqxtvvxtbkzzqk.supabase.co/storage/v1/object/public/reference-images/under-awning-lightbox.jpg",
         };
         const finishDescriptions: Record<string, string> = {
           gloss: "High-sheen acrylic face with sharp, mirror-like environmental reflections.",
