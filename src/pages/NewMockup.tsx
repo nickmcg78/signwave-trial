@@ -514,10 +514,10 @@ const SIGN_TYPES: { id: string; name: string; description: string; defaultSpec: 
   },
   {
     id: 'window_vinyl',
-    name: 'Window Vinyl',
-    description: 'Printed or frosted vinyl applied directly to glass',
+    name: 'Window Graphics',
+    description: 'Printed, frosted or cut-out graphics applied directly to glass',
     defaultSpec:
-      'Frosted white vinyl with logo reversed out in clear vinyl, applied directly to the glass surface.',
+      'Window graphics applied directly to the glass surface — frosted white vinyl with the logo and brand text reproduced in clear or contrasting colour. Should sit naturally on the glass and respect the existing window frame and mullions.',
   },
 ]
 
@@ -548,7 +548,7 @@ function StepType({ state, setState, signIndex }: StepProps) {
           <li><strong>Fascia panel</strong> &mdash; flat sign on the band above the entrance. Most common.</li>
           <li><strong>Dimensional letters</strong> &mdash; individual 3D letters mounted on the wall. Premium feel.</li>
           <li><strong>Lightbox</strong> &mdash; backlit cabinet, ideal for night visibility.</li>
-          <li><strong>Window vinyl</strong> &mdash; printed graphic on the glass. Best on shopfronts with large unobstructed windows.</li>
+          <li><strong>Window graphics</strong> &mdash; printed or frosted graphic applied to the glass. Best on shopfronts with large unobstructed windows.</li>
         </ul>
       </div>
 
@@ -631,7 +631,7 @@ function StepSpec({ state, setState, signIndex, onAddSign }: StepProps) {
           <li>Tap and drag to draw a rectangle where the sign should go</li>
           <li>Be deliberate about size &mdash; the AI uses your rectangle as the target</li>
           <li>For fascia panels, draw across the existing fascia band</li>
-          <li>For window vinyl, draw on the glass area</li>
+          <li>For window graphics, draw on the glass area</li>
           <li>You can clear and redraw if the position isn't quite right</li>
         </ul>
       </div>
