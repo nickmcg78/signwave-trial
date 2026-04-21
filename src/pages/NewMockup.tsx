@@ -343,6 +343,21 @@ function StepPhoto({ state, setState }: StepProps) {
         </ul>
       </div>
 
+      <div className="mt-2 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-900 leading-relaxed">
+        <p className="font-semibold mb-1">No photo? Use Google Street View:</p>
+        <ol className="list-decimal list-inside space-y-0.5">
+          <li>Open Google Maps and find the building. Drag the orange "Street View" person onto the street outside it.</li>
+          <li>Frame the shopfront cleanly in the window.</li>
+          <li>Take a screenshot and save it:
+            <ul className="list-disc list-inside ml-4 mt-0.5 space-y-0.5">
+              <li><strong>Windows:</strong> press <kbd className="px-1 py-0.5 bg-white border border-amber-300 rounded text-[10px]">Win</kbd> + <kbd className="px-1 py-0.5 bg-white border border-amber-300 rounded text-[10px]">Shift</kbd> + <kbd className="px-1 py-0.5 bg-white border border-amber-300 rounded text-[10px]">S</kbd>, drag a box around the shopfront, then click the popup to save.</li>
+              <li><strong>Mac:</strong> press <kbd className="px-1 py-0.5 bg-white border border-amber-300 rounded text-[10px]">⌘ Cmd</kbd> + <kbd className="px-1 py-0.5 bg-white border border-amber-300 rounded text-[10px]">Shift</kbd> + <kbd className="px-1 py-0.5 bg-white border border-amber-300 rounded text-[10px]">4</kbd>, drag a box around the shopfront. The screenshot saves to your Desktop.</li>
+            </ul>
+          </li>
+          <li>Upload the saved file using the button below.</li>
+        </ol>
+      </div>
+
       {/* Hidden native file input — triggered by the visible button below.
           accept="image/*" + capture="environment" tells iOS Safari to offer
           the rear camera directly, which is what a franchisee standing

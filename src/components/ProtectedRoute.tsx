@@ -5,10 +5,15 @@ import type { UserRole } from '../lib/types'
 
 interface Props {
   children: ReactNode
-  requiredRole?: UserRole
+  /**
+   * Roles allowed to access this route. If omitted, any authenticated
+   * user is allowed. If provided, the current user's role must be in
+   * the list. (Use a single-element array for the common single-role case.)
+   */
+  allowedRoles?: UserRole[]
 }
 
-export default function ProtectedRoute({ children, requiredRole }: Props) {
+export default function ProtectedRoute({ children, allowedRoles }: Props) {
   const { user, loading } = useAuth()
   const location = useLocation()
 
@@ -25,7 +30,7 @@ export default function ProtectedRoute({ children, requiredRole }: Props) {
     return <Navigate to="/login" replace state={{ from: location }} />
   }
 
-  if (requiredRole && user.role !== requiredRole) {
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
     // Wrong role — bounce them to their own home
     const home = user.role === 'admin' ? '/admin' : '/'
     return <Navigate to={home} replace />

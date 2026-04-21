@@ -17,10 +17,10 @@ export default function App() {
           {/* Public */}
           <Route path="/login" element={<LoginPage />} />
 
-          {/* Franchisee area — wrapped in FranchiseeLayout shell */}
+          {/* Franchisee dashboard — admins have their own home at /admin */}
           <Route
             element={
-              <ProtectedRoute requiredRole="franchisee">
+              <ProtectedRoute allowedRoles={['franchisee']}>
                 <FranchiseeLayout />
               </ProtectedRoute>
             }
@@ -28,21 +28,21 @@ export default function App() {
             <Route path="/" element={<FranchiseeDashboard />} />
           </Route>
 
-          {/* Franchisee wizard — protected, but no layout chrome (full-screen) */}
+          {/* Wizard — both franchisees AND admins can use it (admins for QA / demos) */}
           <Route
             path="/new"
             element={
-              <ProtectedRoute requiredRole="franchisee">
+              <ProtectedRoute allowedRoles={['franchisee', 'admin']}>
                 <NewMockup />
               </ProtectedRoute>
             }
           />
 
-          {/* Mockup result — polling screen after the wizard's Generate */}
+          {/* Mockup result — both roles allowed so admins can review any mockup */}
           <Route
             path="/result/:jobId"
             element={
-              <ProtectedRoute requiredRole="franchisee">
+              <ProtectedRoute allowedRoles={['franchisee', 'admin']}>
                 <ResultPage />
               </ProtectedRoute>
             }
@@ -51,7 +51,7 @@ export default function App() {
           {/* Admin area */}
           <Route
             element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute allowedRoles={['admin']}>
                 <AdminLayout />
               </ProtectedRoute>
             }
