@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import FranchiseeLayout from './layouts/FranchiseeLayout'
 import AdminLayout from './layouts/AdminLayout'
 import LoginPage from './pages/LoginPage'
+import AuthCallback from './pages/AuthCallback'
 import FranchiseeDashboard from './pages/FranchiseeDashboard'
 import AdminDashboard from './pages/AdminDashboard'
 import NewMockup from './pages/NewMockup'
@@ -16,6 +17,9 @@ export default function App() {
         <Routes>
           {/* Public */}
           <Route path="/login" element={<LoginPage />} />
+          {/* Public — handles redirects from Supabase auth emails
+              (password recovery, magic link, signup confirmation) */}
+          <Route path="/auth/callback" element={<AuthCallback />} />
 
           {/* Franchisee dashboard — admins have their own home at /admin */}
           <Route
