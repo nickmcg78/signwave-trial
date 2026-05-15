@@ -988,7 +988,35 @@ The result must look like a real on-site photograph of the same building after p
           console.log(`[generate-mockup] ✅ ${signLabel} complete. ${signs.length - signIndex - 1} sign(s) remaining.`);
         }
 
-        const finalUrl = `data:${currentShopMime};base64,${currentShopBase64}`;
+        // Upload the final image to Supabase Storage rather than storing it
+        // as a base64 data URL in mockup_jobs.result_url. Base64 in a TEXT
+        // column was filling the Free-plan DB (1 MB+ per row × hundreds of
+        // mockups → 500 MB+). The Storage bucket has its own quota and is
+        // the right place for binary blobs.
+        let finalUrl: string;
+        try {
+          const finalBytes = base64DecodeToBytes(currentShopBase64);
+          const storagePath = `${jobId}.png`;
+          const { error: uploadError } = await supabaseAdmin.storage
+            .from("mockups")
+            .upload(storagePath, finalBytes, {
+              contentType: currentShopMime || "image/png",
+              upsert: true,
+              cacheControl: "31536000", // 1 year — file is immutable once generated
+            });
+          if (uploadError) throw uploadError;
+          const { data: pub } = supabaseAdmin.storage.from("mockups").getPublicUrl(storagePath);
+          finalUrl = pub.publicUrl;
+          console.log(`[storage] uploaded ${storagePath} (${finalBytes.length} bytes) → ${finalUrl}`);
+        } catch (storageErr) {
+          // Fallback so the job doesn't fail when Storage misbehaves: keep
+          // the legacy base64-in-DB behaviour for this single row. We surface
+          // a warning to the logs so the admin notices. If this fires
+          // consistently the bucket is probably missing or misconfigured.
+          console.warn(`[storage] upload failed, falling back to base64 in DB:`, storageErr);
+          finalUrl = `data:${currentShopMime};base64,${currentShopBase64}`;
+        }
+
         await supabaseAdmin.from("mockup_jobs").update({ status: "complete", result_url: finalUrl, progress: "Complete!", updated_at: new Date().toISOString() }).eq("id", jobId);
         console.log(`[generate-mockup] Job ${jobId} complete.`);
 
