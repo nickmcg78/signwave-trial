@@ -54,58 +54,117 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
   process.exit(1);
 }
 
-const BUCKET = 'mockups';
-const CHUNK_SIZE = 5; // parallel uploads per batch; tune up/down based on rate-limit headroom
+const BUCKET = 'Mockups';
+const PAUSE_MS = 250; // small breather between rows to avoid REST rate spikes
+const MAX_RETRIES = 2; // per-step retry budget; "57014 statement timeout" is the main symptom we're guarding against
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-async function processRow(row, index, total) {
-  const tag = `[${(index + 1).toString().padStart(3)}/${total}] ${row.id.slice(0, 8)}`;
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isRetryable(err) {
+  const msg = err && err.message ? String(err.message) : String(err);
+  return /timeout|57014|upstream|fetch failed|ECONNRESET|EAI_AGAIN/i.test(msg);
+}
+
+async function withRetry(label, fn) {
+  let attempt = 0;
+  let lastErr;
+  while (attempt <= MAX_RETRIES) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      attempt++;
+      if (attempt > MAX_RETRIES || !isRetryable(err)) throw err;
+      const backoff = 1000 * attempt; // 1s, 2s
+      console.log(`    ${label} retry ${attempt}/${MAX_RETRIES} after ${backoff}ms (${err.message || err})`);
+      await sleep(backoff);
+    }
+  }
+  throw lastErr;
+}
+
+async function processRowById(id, index, total) {
+  const tag = `[${(index + 1).toString().padStart(3)}/${total}] ${id.slice(0, 8)}`;
   try {
-    const dataUrl = row.result_url;
-    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    // Fetch just this row's result_url. Wrapped in retry because even
+    // single-row fetches of 2-3MB columns occasionally hit the REST timeout.
+    const row = await withRetry(`${tag} fetch`, async () => {
+      const { data, error } = await supabase
+        .from('mockup_jobs')
+        .select('result_url')
+        .eq('id', id)
+        .single();
+      if (error) throw error;
+      return data;
+    });
+
+    if (!row || !row.result_url) {
+      return { id, status: 'skipped', reason: 'no result_url' };
+    }
+
+    // Skip rows already on Storage (idempotent re-run safety — most rows
+    // on a re-run will hit this and return fast).
+    if (!row.result_url.startsWith('data:')) {
+      return { id, status: 'skipped', reason: 'already migrated' };
+    }
+
+    const match = row.result_url.match(/^data:([^;]+);base64,(.+)$/);
     if (!match) {
-      return { id: row.id, status: 'skipped', reason: 'malformed data URL' };
+      return { id, status: 'skipped', reason: 'malformed data URL' };
     }
     const mime = match[1];
     const base64 = match[2];
     const buffer = Buffer.from(base64, 'base64');
-    const fileName = `${row.id}.png`;
+    const fileName = `${id}.png`;
 
-    const { error: uploadErr } = await supabase.storage
-      .from(BUCKET)
-      .upload(fileName, buffer, {
-        contentType: mime,
-        upsert: true,
-        cacheControl: '31536000',
-      });
-    if (uploadErr) throw uploadErr;
+    await withRetry(`${tag} upload`, async () => {
+      const { error } = await supabase.storage
+        .from(BUCKET)
+        .upload(fileName, buffer, {
+          contentType: mime,
+          upsert: true,
+          cacheControl: '31536000',
+        });
+      if (error) throw error;
+    });
 
     const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(fileName);
 
-    const { error: updateErr } = await supabase
-      .from('mockup_jobs')
-      .update({ result_url: pub.publicUrl })
-      .eq('id', row.id);
-    if (updateErr) throw updateErr;
+    await withRetry(`${tag} update`, async () => {
+      const { error } = await supabase
+        .from('mockup_jobs')
+        .update({ result_url: pub.publicUrl })
+        .eq('id', id);
+      if (error) throw error;
+    });
 
     console.log(`  ${tag} → ${(buffer.length / 1024).toFixed(0)} KB`);
-    return { id: row.id, status: 'success' };
+    return { id, status: 'success' };
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
     console.error(`  ${tag} FAILED — ${msg}`);
-    return { id: row.id, status: 'failed', reason: msg };
+    return { id, status: 'failed', reason: msg };
   }
 }
 
 async function main() {
-  console.log('Querying legacy base64 rows…');
-  const { data: rows, error: qErr } = await supabase
+  console.log('Querying candidate row IDs (lightweight — no result_url payload)…');
+  // Two-step approach to avoid statement timeout:
+  //   1. Fetch ONLY ids of completed rows (status='complete' is indexed +
+  //      cheap; no need to read the huge result_url TOAST data).
+  //   2. processRowById then fetches and migrates each row individually.
+  // Rows already on Storage are silently skipped by processRowById, so this
+  // script is safe to re-run.
+  const { data: idRows, error: qErr } = await supabase
     .from('mockup_jobs')
-    .select('id, result_url')
-    .like('result_url', 'data:image/%')
+    .select('id')
+    .eq('status', 'complete')
     .order('created_at', { ascending: true });
 
   if (qErr) {
@@ -113,21 +172,21 @@ async function main() {
     process.exit(1);
   }
 
-  if (rows.length === 0) {
-    console.log('No legacy rows to migrate. All result_urls already point to Storage.');
+  if (!idRows || idRows.length === 0) {
+    console.log('No completed rows found. Nothing to migrate.');
     return;
   }
 
-  console.log(`Found ${rows.length} legacy rows. Uploading in chunks of ${CHUNK_SIZE}...\n`);
+  console.log(`Found ${idRows.length} completed rows. Migrating sequentially (one at a time, with retry on timeout)...\n`);
 
   const start = Date.now();
   const results = [];
-  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-    const chunk = rows.slice(i, i + CHUNK_SIZE);
-    const chunkResults = await Promise.all(
-      chunk.map((row, idxInChunk) => processRow(row, i + idxInChunk, rows.length))
-    );
-    results.push(...chunkResults);
+  for (let i = 0; i < idRows.length; i++) {
+    const result = await processRowById(idRows[i].id, i, idRows.length);
+    results.push(result);
+    // Pause briefly between rows to avoid hammering the REST gateway
+    // (don't pause after the last row).
+    if (i < idRows.length - 1) await sleep(PAUSE_MS);
   }
 
   const success = results.filter(r => r.status === 'success').length;
@@ -137,7 +196,7 @@ async function main() {
 
   console.log(`\n============================================`);
   console.log(`  BACKFILL COMPLETE`);
-  console.log(`  Total: ${rows.length} | OK: ${success} | Failed: ${failed} | Skipped: ${skipped}`);
+  console.log(`  Total: ${idRows.length} | OK: ${success} | Failed: ${failed} | Skipped: ${skipped}`);
   console.log(`  Time: ${elapsed}s`);
   console.log(`============================================\n`);
 
