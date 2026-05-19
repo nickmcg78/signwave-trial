@@ -216,32 +216,20 @@ function CompleteScreen({
     if (!error) setFeedbackSent(true)
   }
 
-  function handleDownload() {
-    // iOS Safari ignores the `download` attribute on <a> tags — it just opens
-    // the image in the same tab. Instead we convert the data URL to a Blob,
-    // then open it in a new tab. On iOS the user can long-press → "Save to
-    // Photos" or tap the share button — which is the native flow they expect.
-    // On desktop/Android, the <a download> path still works, so we feature-detect.
-    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+  async function handleDownload() {
+    // resultUrl is a cross-origin Supabase Storage URL, so the browser ignores
+    // <a download> on it directly. Fetch it into a same-origin blob URL first.
+    const response = await fetch(resultUrl)
+    const blob = await response.blob()
+    const blobUrl = URL.createObjectURL(blob)
 
-    if (isIOS) {
-      // Convert data URL to blob
-      const [header, base64] = resultUrl.split(',')
-      const mime = header.match(/:(.*?);/)?.[1] ?? 'image/png'
-      const bytes = atob(base64)
-      const arr = new Uint8Array(bytes.length)
-      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
-      const blob = new Blob([arr], { type: mime })
-      const blobUrl = URL.createObjectURL(blob)
-      window.open(blobUrl, '_blank')
-    } else {
-      const a = document.createElement('a')
-      a.href = resultUrl
-      a.download = 'mockup.png'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-    }
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = 'mockup.png'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(blobUrl)
   }
 
   return (
